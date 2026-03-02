@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "run_name": "run_maximum_speed",
+    "description": "Maximum speed - no checkpoints, minimal evaluation",
+    "author": "",
+    "tags": ["maximum_speed", "no_checkpoints", "benchmark"]
+  },
+
+  "environment": {
+    "device": "mps",
+    "dtype": "bfloat16",
+    "seed": 42,
+    "num_workers": 0
+  },
+
+  "tokenizer": {
+    "tok_id": "tok_bpe_8k",
+    "type": "bpe",
+    "vocab_size": 8000,
+    "artifacts_path": "artifacts/tokenizers/tok_bpe_8k"
+  },
+
+  "dataset": {
+    "ds_id": "ds_tinystories_tok_bpe8k_T128",
+    "dataset_type": "pretrain",
+    "tok_id": "tok_bpe_8k",
+    "artifacts_path": "artifacts/datasets/ds_tinystories_tok_bpe8k_T128",
+    "max_seq_len": 128,
+    "train_split": 0.9,
+    "val_split": 0.1
+  },
+
+  "model": {
+    "architecture": "gpt",
+    "n_layer": 4,
+    "n_head": 4,
+    "n_embd": 1024,
+    "dropout": 0.02,
+    "block_size": 128,
+    "bias": false,
+    "vocab_size": 8000
+  },
+
+  "training": {
+    "batch_size": 32,
+    "max_steps": 5000,
+    "learning_rate": 0.0005,
+    "scheduler": "cosine",
+    "warmup_steps": 200,
+    "grad_clip": 1.0,
+    "weight_decay": 0.1,
+    "beta1": 0.9,
+    "beta2": 0.95,
+    "eval_interval": 999999,
+    "eval_steps": 1,
+    "checkpoint_interval": 999999,
+    "checkpoint_mode": "best_and_latest"
+  },
+
+  "observe": {
+    "log_interval": 200,
+    "disable_tensorboard": false,
+    "disable_jsonl": true
+  }
+}

@@ -1,0 +1,8 @@
+.venv/
+.DS_Store
+.deepeval/
+runs/
+tensorboard
+__pycache__/
+*.pyc
+*.pyo

@@ -1,0 +1,8 @@
+{
+  "tok_id": "tok_bpe_8k",
+  "type": "bpe",
+  "vocab_size": 8000,
+  "special_tokens": ["<pad>", "<unk>", "<s>", "</s>"],
+  "training_corpus": null,
+  "min_frequency": 2
+}

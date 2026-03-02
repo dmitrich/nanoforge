@@ -1,0 +1,7 @@
+{
+  "tok_id": "tok_bpe_8k",
+  "vocab_size": 8000,
+  "vocab_path": "artifacts/tokenizers/tok_bpe_8k/vocab.json",
+  "merges_path": "artifacts/tokenizers/tok_bpe_8k/merges.txt",
+  "loaded_at": "2026-03-02T14:11:40.929030"
+}

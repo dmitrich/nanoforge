@@ -1,0 +1,29 @@
+{
+  "meta": {
+    "infer_name": "infer_evals",
+    "description": "Inference with evals from evals.json (deepeval format)",
+    "tags": ["evals", "evaluation"]
+  },
+
+  "source": {
+    "run_id": null,
+    "checkpoint": "best"
+  },
+
+  "model": { "$from_run": true },
+  "tokenizer": { "$from_run": true },
+
+  "generation": {
+    "max_new_tokens": 200,
+    "temperature": 1.0,
+    "top_k": 0,
+    "strategy": "top_k"
+  },
+
+  "input": {
+    "mode": "evals",
+    "interactive": false,
+    "evals": true,
+    "evals_file": "evals.json"
+  }
+}

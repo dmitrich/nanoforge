@@ -1,0 +1,6 @@
+torch
+numpy
+tokenizers
+tensorboard
+deepeval
+openai

@@ -1,0 +1,40 @@
+{
+  "test_cases": [
+    {
+      "id": "test_001",
+      "input": "Once upon a time",
+      "expected_output": null,
+      "metrics": ["coherence", "fluency"],
+      "metadata": {
+        "category": "story_generation",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "id": "test_002",
+      "input": "The little girl went to",
+      "expected_output": null,
+      "metrics": ["coherence", "fluency", "creativity"],
+      "metadata": {
+        "category": "story_continuation",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "id": "test_003",
+      "input": "In a magical forest, there lived",
+      "expected_output": null,
+      "metrics": ["coherence", "fluency", "creativity", "consistency"],
+      "metadata": {
+        "category": "story_generation",
+        "difficulty": "medium"
+      }
+    }
+  ],
+  "config": {
+    "framework": "deepeval",
+    "version": "1.0",
+    "description": "Sample evaluation test cases for language model inference",
+    "notes": "This is a template for future deepeval integration. Functionality not yet implemented."
+  }
+}
