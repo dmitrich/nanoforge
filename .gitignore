@@ -6,3 +6,4 @@ tensorboard
 __pycache__/
 *.pyc
 *.pyo
+*.bin
