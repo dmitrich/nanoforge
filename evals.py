@@ -13,110 +13,31 @@ Each run produces:
         results.jsonl        — per-case metric scores + judge reasoning
         summary.json         — aggregate pass/fail and per-metric stats
 
-Judge credentials are resolved via ~/Documents/dev/azure/providers.py:
-    - "nebius"   → Keychain: nebius-api-key   / env: NEBIUS_API_KEY
-    - "together" → Keychain: together-api-key  / env: TOGETHER_API_KEY
-    - "azure"    → Keychain: azure-openai-api-key / env: AZURE_OPENAI_API_KEY
+Judge credentials are resolved by src/judge.py:
+    - "nebius"   → configs/nebius_config.json  / Keychain: nebius-api-key   / env: NEBIUS_API_KEY
+    - "together" → configs/together_config.json / Keychain: together-api-key  / env: TOGETHER_API_KEY
+    - "azure"    → configs/azure_config.json   / Keychain: azure-openai-api-key / env: AZURE_OPENAI_API_KEY
 
     The eval config's "judge" section controls which provider, endpoint, and
     model to use. Falls back to values in the provider's config file if not set.
 """
 
-import asyncio
 import json
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
 
 import torch
 from deepeval.metrics import GEval
-from deepeval.models.base_model import DeepEvalBaseLLM
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
-from openai import AzureOpenAI, OpenAI
 
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
+from judge import build_judge
 from manifest import generate_run_id, create_manifest, complete_manifest, fail_manifest
 from model import GPT
 from tokenizer import Tokenizer
 from utils import append_jsonl, get_device, write_json
-
-
-# ─── Judge LLM (provider-agnostic) ───────────────────────────────────────────
-
-class JudgeLLM(DeepEvalBaseLLM):
-    """DeepEvalBaseLLM wrapper for any OpenAI-compatible client (Azure, Nebius, Together)."""
-
-    def __init__(self, client, model_name: str):
-        # Set attributes before super().__init__() because it calls load_model()
-        self.client     = client
-        self.model_name = model_name
-        super().__init__(model=model_name)
-
-    def load_model(self):
-        return self.client
-
-    def generate(self, prompt: str, *args, **kwargs) -> str:
-        schema = kwargs.get('schema')
-        extra  = {"response_format": {"type": "json_object"}} if schema else {}
-        response = self.client.chat.completions.create(
-            model=self.model_name,
-            messages=[{"role": "user", "content": prompt}],
-            **extra,
-        )
-        return response.choices[0].message.content
-
-    async def a_generate(self, prompt: str, *args, **kwargs) -> str:
-        return self.generate(prompt, *args, **kwargs)
-
-    def get_model_name(self) -> str:
-        return self.model_name
-
-
-def _build_judge(judge_cfg: dict) -> JudgeLLM:
-    """
-    Build a JudgeLLM from the eval config's "judge" section.
-
-    Supported providers:  nebius | together | azure
-    Credentials are resolved via ~/Documents/dev/azure/providers.py
-    (Keychain on macOS, env var fallback).
-
-    Judge config fields (all optional — fall back to provider config files):
-        provider  : "nebius" | "together" | "azure"
-        endpoint  : API base URL
-        model     : model / deployment name
-        api_version: Azure only
-    """
-    sys.path.insert(0, os.path.expanduser('~/Documents/dev/azure'))
-    from providers import get_api_key, load_config as load_provider_config
-
-    provider = judge_cfg.get("provider", "nebius")
-
-    api_key = get_api_key(provider)
-    if not api_key:
-        raise ValueError(
-            f"{provider} API key not found. "
-            f"Set the appropriate env var or add to Keychain via providers.py."
-        )
-
-    prov_cfg = load_provider_config(provider)
-
-    if provider == "azure":
-        endpoint    = judge_cfg.get("endpoint")    or prov_cfg.get("endpoint")
-        model_name  = judge_cfg.get("model")       or prov_cfg.get("deployment_name")
-        api_version = judge_cfg.get("api_version") or prov_cfg.get("api_version", "2024-02-15-preview")
-        client = AzureOpenAI(
-            api_key=api_key,
-            azure_endpoint=endpoint,
-            api_version=api_version,
-        )
-    else:
-        endpoint   = judge_cfg.get("endpoint") or prov_cfg.get("endpoint")
-        model_name = judge_cfg.get("model")    or prov_cfg.get("current_model") or prov_cfg.get("default_model")
-        client = OpenAI(api_key=api_key, base_url=endpoint)
-
-    return JudgeLLM(client, model_name)
 
 
 # ─── Config resolution ────────────────────────────────────────────────────────
@@ -252,7 +173,7 @@ def run_evals(config_path: str = None):
 
         # ── Build judge ───────────────────────────────────────────────────────
         print("\n--- Building judge ---")
-        judge = _build_judge(judge_cfg)
+        judge = build_judge(judge_cfg)
         print(f"Judge: {judge.get_model_name()}")
 
         # ── Build GEval metrics from config ───────────────────────────────────

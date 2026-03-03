@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Knowledge base: /Documents/know/llm-training/projects/alg3.md
+
 ## Project Overview
 
 **alg3** is a modular PyTorch system for training and evaluating small GPT language models on the TinyStories dataset using Byte-Pair Encoding (BPE) tokenization. The project emphasizes reproducibility (config hashing, deterministic seeds, manifest tracking) and clean separation of concerns.
@@ -19,26 +21,23 @@ python src/dataset_prep.py configs/ds_tinystories_pretrain.json  # Prepare datas
 
 ### Training
 ```bash
-python src/train.py configs/run_exp001.json           # Baseline (4L, 4H, 1024D, batch=4)
-python src/train.py configs/run_fast.json             # Quick iteration
-python src/train.py configs/run_maximum_speed.json    # Batch=32, 5000 steps
+python src/train.py configs/train.json   # batch=32, cosine LR, 1000 steps, TensorBoard on
 ```
 
 ### Inference
 ```bash
-python src/infer.py                                   # Auto-detects latest training run
-python src/infer.py configs/infer_batch.json          # Batch mode
-python src/infer.py configs/infer_interactive.json    # Interactive REPL
+python src/infer.py configs/infer.json   # Batch mode — 3 prompts, inherits latest run
+python src/infer.py                      # Auto-detects latest training run
 ```
 
-### Evaluation (deepeval + Azure judge)
+### Evaluation (deepeval + Nebius Llama judge)
 ```bash
-python evals.py configs/evals_stories.json   # explicit config
-python evals.py                              # latest training run + built-in defaults
+python evals.py configs/eval.json   # Coherence, Fluency, Creativity via Nebius judge
+python evals.py                     # latest training run + built-in defaults
 ```
 Outputs land in `runs/evals/<eval_id>/`: `generations.jsonl`, `results.jsonl`, `summary.json`, `manifest.json`.
 
-Azure credentials are resolved automatically via `~/Documents/dev/azure/providers.py` (macOS Keychain service `azure-openai-api-key`, or `AZURE_OPENAI_API_KEY` env var). Endpoint and deployment come from `~/Documents/dev/azure/azure_openai_config.json`.
+Nebius credentials are resolved automatically via `~/Documents/dev/azure/providers.py` (macOS Keychain service `nebius-api-key`, or `NEBIUS_API_KEY` env var).
 
 ### Monitoring & Manifest
 ```bash
@@ -83,7 +82,7 @@ Dual tracking: TensorBoard (optional, graceful fallback) + JSONL metrics file. B
 Three modes controlled by `InferConfig.mode`: `batch` (encode prompts from config → save JSONL), `interactive` (REPL loop), `evals` (stub — actual deepeval integration lives in `evals.py`).
 
 ### Evaluation Pipeline (`evals.py`)
-Standalone entry point (project root). Flow: load JSON eval config → resolve `$from_run` references inline (same pattern as `InferConfig`) → run GPT inference on test cases in `evals.json` → score outputs with deepeval `GEval` (LLM-as-judge) → write results. Eval configs live in `configs/evals_*.json`; they carry the same `source`/`model`/`tokenizer`/`generation` sections as infer configs plus `judge`, `metrics`, and `test_cases_file` sections. The `AzureJudge` class (subclass of `DeepEvalBaseLLM`) wraps an `AzureOpenAI` client; credentials are fetched through `~/Documents/dev/azure/providers.py`. `manifest.py`'s `rebuild_registry` does not index `runs/evals/`; eval runs are appended to `runs/registry.jsonl` at creation time.
+Standalone entry point (project root). Flow: load JSON eval config → resolve `$from_run` references inline (same pattern as `InferConfig`) → run GPT inference on test cases in `evals.json` → score outputs with deepeval `GEval` (LLM-as-judge) → write results. The canonical eval config is `configs/eval.json`; it carries the same `source`/`model`/`tokenizer`/`generation` sections as infer configs plus `judge`, `metrics`, and `test_cases_file` sections. The judge class wraps a Nebius API client; credentials are fetched through `~/Documents/dev/azure/providers.py`. `manifest.py`'s `rebuild_registry` does not index `runs/evals/`; eval runs are appended to `runs/registry.jsonl` at creation time.
 
 ## Key Design Patterns
 

@@ -17,17 +17,21 @@ from utils import get_device, set_seed, write_json
 
 
 def get_lr(step: int, training: dict) -> float:
-    lr       = training['learning_rate']
-    warmup   = training.get('warmup_steps', 200)
+    lr = training['learning_rate']
+
+    if training.get('scheduler', 'cosine') == 'const':
+        return lr
+
+    warmup    = training.get('warmup_steps', 200)
     max_steps = training['max_steps']
-    min_lr   = lr * 0.1
+    min_lr    = lr * 0.1
 
     if step < warmup:
         return lr * step / max(warmup, 1)
     if step >= max_steps:
         return min_lr
-    decay  = (step - warmup) / max(max_steps - warmup, 1)
-    coeff  = 0.5 * (1.0 + math.cos(math.pi * decay))
+    decay = (step - warmup) / max(max_steps - warmup, 1)
+    coeff = 0.5 * (1.0 + math.cos(math.pi * decay))
     return min_lr + coeff * (lr - min_lr)
 
 
@@ -109,9 +113,17 @@ def run_training(config_path: str):
     grad_clip     = training.get('grad_clip', 1.0)
     log_interval  = run_cfg.observe.get('log_interval', 10)
 
+    scheduler = training.get('scheduler', 'cosine')
+    lr        = training['learning_rate']
+    if scheduler == 'const':
+        lr_desc = f"LR: {lr:.2e} (constant)"
+    else:
+        lr_desc = f"LR: {lr:.2e} → {lr*0.1:.2e}  warmup: {training.get('warmup_steps', 200)} steps"
+
     print(f"Run ID:  {run_id}")
     print(f"Run dir: runs/train/{run_id}")
     print(f"Device:  {device}  |  Params: {model.num_parameters()/1e6:.1f}M  |  Steps: {max_steps}")
+    print(f"Optimizer: AdamW  |  Scheduler: {scheduler}  |  {lr_desc}")
     
     # Print model dimensions summary
     B = training['batch_size']
@@ -163,21 +175,26 @@ def run_training(config_path: str):
             # Track tokens processed
             total_tokens_trained += tokens_per_batch
 
-            if step % log_interval == 0:
-                print(f"step {step:>5}: loss {loss.item():.4f}  lr {lr:.2e}")
-                tracker.log_metric('Loss/train_step', loss.item(), step)
-                tracker.log_metric('LR', lr, step)
+            should_log  = (step % log_interval == 0)
+            should_eval = (step % eval_interval == 0 or step == max_steps - 1)
 
-            if step % eval_interval == 0 or step == max_steps - 1:
+            ev = None
+            if should_eval:
                 ev = estimate_loss(model, train_loader, val_loader, eval_steps, device)
-                print(f"         eval  train={ev['train']:.4f}  val={ev['val']:.4f}")
                 tracker.log_metric('Loss/train_eval', ev['train'], step)
                 tracker.log_metric('Loss/val',        ev['val'],   step)
-
                 if ev['val'] < best_val_loss:
                     best_val_loss = ev['val']
                     model.save_checkpoint(ckpt_dir / 'best.pt', step, optimizer, best_val_loss)
-                    print(f"         -> best.pt  val={best_val_loss:.4f}")
+
+            if should_log or should_eval:
+                line = f"step {step:>5}: loss {loss.item():.4f}  lr {lr:.2e}"
+                if ev is not None:
+                    line += f"  | train={ev['train']:.4f}  val={ev['val']:.4f}"
+                print(line)
+                if should_log:
+                    tracker.log_metric('Loss/train_step', loss.item(), step)
+                    tracker.log_metric('LR', lr, step)
 
             if step > 0 and step % ckpt_interval == 0:
                 model.save_checkpoint(ckpt_dir / 'latest.pt', step, optimizer, loss.item())

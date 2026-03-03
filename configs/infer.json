@@ -1,0 +1,38 @@
+{
+  "_note": "Batch inference config. Inherits model and tokenizer from latest training run. Run: python src/infer.py configs/infer.json",
+
+  "meta": {
+    "infer_name": "infer",
+    "description": "Batch inference — 3 TinyStories prompts, top-k sampling",
+    "tags": ["batch"]
+  },
+
+  "source": {
+    "_note": "run_id: null = auto-detect latest training run. checkpoint: best = prefer best.pt.",
+    "run_id": null,
+    "checkpoint": "best"
+  },
+
+  "model":     { "$from_run": true },
+  "tokenizer": { "$from_run": true },
+
+  "generation": {
+    "_note": "top_k sampling at temperature 0.8. Stops on end-of-story token or double newline.",
+    "max_new_tokens": 200,
+    "temperature": 0.8,
+    "top_k": 40,
+    "strategy": "top_k",
+    "stop_tokens": ["</s>", "\n\n"]
+  },
+
+  "input": {
+    "_note": "batch mode: interactive=false, evals=false. prompts are encoded and fed to model.generate().",
+    "interactive": false,
+    "evals": false,
+    "prompts": [
+      "Once upon a time",
+      "The little girl wanted",
+      "Deep in the forest there lived"
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "endpoint": "https://my-openai-llm.openai.azure.com/",
+  "keychain_service": "azure-openai-api-key",
+  "env_var": "AZURE_OPENAI_API_KEY",
+  "api_version": "2024-02-15-preview",
+  "default_model": "gpt-4"
+}

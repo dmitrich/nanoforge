@@ -1,0 +1,53 @@
+{
+  "_note": "Story quality evaluation config. Uses deepeval GEval with LLM-as-judge. Run: python evals.py configs/eval.json",
+
+  "meta": {
+    "eval_name": "eval",
+    "description": "Story quality evaluation — Coherence, Fluency, Creativity via Nebius Llama judge"
+  },
+
+  "source": {
+    "_note": "run_id: null = auto-detect latest training run. checkpoint: best = prefer best.pt.",
+    "run_id": null,
+    "checkpoint": "best"
+  },
+
+  "model":     { "$from_run": true },
+  "tokenizer": { "$from_run": true },
+
+  "generation": {
+    "_note": "Generation params before judging. Stops on double newline (story boundary).",
+    "max_new_tokens": 200,
+    "temperature": 0.8,
+    "top_k": 40,
+    "stop_tokens": ["\n\n"]
+  },
+
+  "judge": {
+    "_note": "Nebius API. Credentials via ~/Documents/dev/azure/providers.py (Keychain: nebius-api-key or env NEBIUS_API_KEY).",
+    "provider": "nebius",
+    "endpoint": "https://api.tokenfactory.nebius.com/v1/",
+    "model": "meta-llama/Llama-3.3-70B-Instruct"
+  },
+
+  "test_cases_file": "evals.json",
+
+  "metrics": [
+    {
+      "_note": "threshold: score >= 0.5 to pass. Criteria are fed verbatim to the LLM judge.",
+      "name": "Coherence",
+      "criteria": "The story flows logically. Characters, setting, and events are internally consistent from start to finish.",
+      "threshold": 0.5
+    },
+    {
+      "name": "Fluency",
+      "criteria": "The text is grammatically correct, well-formed, and reads naturally as a children's story.",
+      "threshold": 0.5
+    },
+    {
+      "name": "Creativity",
+      "criteria": "The story contains imaginative or playful elements that would engage a child reader.",
+      "threshold": 0.4
+    }
+  ]
+}
