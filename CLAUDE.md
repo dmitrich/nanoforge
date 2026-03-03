@@ -15,7 +15,7 @@ Uses `uv` for environment management with Python 3.12.12 and a `.venv` directory
 
 ### One-time Setup
 ```bash
-python setup_tokenizer.py          # Extract BPE vocab/merges from data/raw/
+python src/setup_tokenizer.py      # Extract BPE vocab/merges from data/raw/
 python src/dataset_prep.py configs/ds_tinystories_pretrain.json  # Prepare dataset shards
 ```
 
@@ -30,14 +30,14 @@ python src/infer.py configs/infer.json   # Batch mode — 3 prompts, inherits la
 python src/infer.py                      # Auto-detects latest training run
 ```
 
-### Evaluation (deepeval + Nebius Llama judge)
+### Evaluation (deepeval + LLM-as-judge)
 ```bash
-python evals.py configs/eval.json   # Coherence, Fluency, Creativity via Nebius judge
-python evals.py                     # latest training run + built-in defaults
+python src/evals.py configs/eval.json   # Coherence, Fluency, Creativity via configured judges
+python src/evals.py                     # latest training run + built-in defaults
 ```
-Outputs land in `runs/evals/<eval_id>/`: `generations.jsonl`, `results.jsonl`, `summary.json`, `manifest.json`.
+Outputs land in `runs/evals/<eval_id>/`: `generations.jsonl`, per-judge `<provider>/results.jsonl` + `summary.json`, top-level `summary.json`, `manifest.json`.
 
-Nebius credentials are resolved automatically via `~/Documents/dev/azure/providers.py` (macOS Keychain service `nebius-api-key`, or `NEBIUS_API_KEY` env var).
+Providers (Nebius, Together AI, Azure) are configured in the `"providers"` section of `configs/eval.json`. Credentials are resolved from env var or macOS Keychain (service name in provider config).
 
 ### Monitoring & Manifest
 ```bash
@@ -79,10 +79,10 @@ Training data stored as binary uint16 shards in `artifacts/datasets/`. `ShardedD
 Dual tracking: TensorBoard (optional, graceful fallback) + JSONL metrics file. Both can be disabled via config flags.
 
 ### Inference Modes (`src/infer.py`)
-Three modes controlled by `InferConfig.mode`: `batch` (encode prompts from config → save JSONL), `interactive` (REPL loop), `evals` (stub — actual deepeval integration lives in `evals.py`).
+Three modes controlled by `InferConfig.mode`: `batch` (encode prompts from config → save JSONL), `interactive` (REPL loop), `evals` (stub — actual deepeval integration lives in `src/evals.py`).
 
-### Evaluation Pipeline (`evals.py`)
-Standalone entry point (project root). Flow: load JSON eval config → resolve `$from_run` references inline (same pattern as `InferConfig`) → run GPT inference on test cases in `evals.json` → score outputs with deepeval `GEval` (LLM-as-judge) → write results. The canonical eval config is `configs/eval.json`; it carries the same `source`/`model`/`tokenizer`/`generation` sections as infer configs plus `judge`, `metrics`, and `test_cases_file` sections. The judge class wraps a Nebius API client; credentials are fetched through `~/Documents/dev/azure/providers.py`. `manifest.py`'s `rebuild_registry` does not index `runs/evals/`; eval runs are appended to `runs/registry.jsonl` at creation time.
+### Evaluation Pipeline (`src/evals.py`)
+Entry point lives in `src/`; uses `os.chdir` to project root at startup so all `Path("runs/...")` lookups are correct regardless of invocation directory. Flow: load JSON eval config → resolve `$from_run` references → run GPT inference on test cases in `src/evals.json` → score with deepeval `GEval` (LLM-as-judge) for each judge in `configs/eval.json`'s `"judges"` list → write per-judge results. The canonical eval config is `configs/eval.json`; it carries `source`/`model`/`tokenizer`/`generation` sections plus `providers`, `judges`, `metrics`, and `test_cases_file`. `manifest.py`'s `rebuild_registry` does not index `runs/evals/`; eval runs are appended to `runs/registry.jsonl` at creation time.
 
 ## Key Design Patterns
 
