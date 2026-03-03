@@ -8,7 +8,7 @@
 
   "source": {
     "_note": "run_id: null = auto-detect latest training run. checkpoint: best = prefer best.pt.",
-    "run_id": null,
+    "run_id": "run_maximum_speed_20260301_130933",
     "checkpoint": "best"
   },
 
