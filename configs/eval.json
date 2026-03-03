@@ -1,9 +1,9 @@
 {
-  "_note": "Story quality evaluation config. Uses deepeval GEval with LLM-as-judge. Run: python evals.py configs/eval.json",
+  "_note": "Story quality evaluation. Run: python evals.py configs/eval.json",
 
   "meta": {
     "eval_name": "eval",
-    "description": "Story quality evaluation — Coherence, Fluency, Creativity via Nebius Llama judge"
+    "description": "Story quality evaluation — Coherence, Fluency, Creativity"
   },
 
   "source": {
@@ -16,25 +16,53 @@
   "tokenizer": { "$from_run": true },
 
   "generation": {
-    "_note": "Generation params before judging. Stops on double newline (story boundary).",
+    "_note": "Stops on double newline (story boundary).",
     "max_new_tokens": 200,
     "temperature": 0.8,
     "top_k": 40,
     "stop_tokens": ["\n\n"]
   },
 
-  "judge": {
-    "_note": "Nebius API. Credentials via ~/Documents/dev/azure/providers.py (Keychain: nebius-api-key or env NEBIUS_API_KEY).",
-    "provider": "nebius",
-    "endpoint": "https://api.tokenfactory.nebius.com/v1/",
-    "model": "meta-llama/Llama-3.3-70B-Instruct"
+  "test_cases_file": "evals.json",
+
+  "providers": {
+    "_note": "Credentials: env var checked first, then macOS Keychain. Add new providers here, then reference them in judges[].",
+    "nebius": {
+      "endpoint": "https://api.tokenfactory.nebius.com/v1/",
+      "keychain_service": "nebius-api-key",
+      "env_var": "NEBIUS_API_KEY",
+      "default_model": "meta-llama/Llama-3.3-70B-Instruct"
+    },
+    "together": {
+      "endpoint": "https://api.together.xyz/v1/",
+      "keychain_service": "together-api-key",
+      "env_var": "TOGETHER_API_KEY",
+      "default_model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+    },
+    "azure": {
+      "_note": "Disabled — not in judges[] below. Add to judges[] to activate.",
+      "endpoint": "https://my-openai-llm.openai.azure.com/",
+      "keychain_service": "azure-openai-api-key",
+      "env_var": "AZURE_OPENAI_API_KEY",
+      "api_version": "2024-02-15-preview",
+      "default_model": "gpt-4"
+    }
   },
 
-  "test_cases_file": "evals.json",
+  "judges": [
+    {
+      "provider": "nebius",
+      "model": "meta-llama/Llama-3.3-70B-Instruct"
+    },
+    {
+      "provider": "together",
+      "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+    }
+  ],
 
   "metrics": [
     {
-      "_note": "threshold: score >= 0.5 to pass. Criteria are fed verbatim to the LLM judge.",
+      "_note": "threshold: score >= value to pass. Criteria fed verbatim to the judge.",
       "name": "Coherence",
       "criteria": "The story flows logically. Characters, setting, and events are internally consistent from start to finish.",
       "threshold": 0.5
