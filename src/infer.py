@@ -22,8 +22,6 @@ def run_inference(config_path: str = None):
         # No config: synthesise a minimal InferConfig from the latest training run
         run_dir  = _find_latest_train_run()
         resolved = json.load(open(run_dir / 'resolved_run.json'))
-        best     = run_dir / 'checkpoints' / 'best.pt'
-        latest   = run_dir / 'checkpoints' / 'latest.pt'
 
         cfg = InferConfig(
             meta={'infer_name': 'infer'},

@@ -2,7 +2,6 @@ import math
 import sys
 import time
 import torch
-from dataclasses import asdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -12,6 +11,15 @@ from dataloader import build_dataloaders
 from manifest import generate_run_id, create_manifest, complete_manifest, fail_manifest
 from model import GPT, ModelConfig
 from tokenizer import Tokenizer
+from observability import (
+    CHECKPOINT_EVENT_NAME,
+    TRAINING_EVAL_SPAN_NAME,
+    TRAINING_ROOT_SPAN_NAME,
+    build_common_tags,
+    build_common_trace_metadata,
+    flush_langfuse,
+    get_langfuse_client,
+)
 from tracker import Tracker
 from utils import get_device, set_seed, write_json
 
@@ -88,6 +96,45 @@ def run_training(config_path: str):
         'parent_run_id': None,
     }
     create_manifest(run_dir, run_id, 'train', resolved, lineage)
+    langfuse = get_langfuse_client()
+    train_trace = langfuse.trace(
+        id=run_id,
+        name=TRAINING_ROOT_SPAN_NAME,
+        session_id=run_id,
+        input={"config_path": config_path, "resolved": resolved},
+        metadata=build_common_trace_metadata(
+            experiment_id=run_id,
+            run_type="training",
+            source_run_id=run_id,
+            extra={
+                "dataset.id": run_cfg.dataset["ds_id"],
+                "tokenizer.id": run_cfg.tokenizer["tok_id"],
+                "device": device,
+                "model.architecture": run_cfg.model["architecture"],
+                "model.layers": run_cfg.model["n_layer"],
+                "model.heads": run_cfg.model["n_head"],
+                "model.embedding_dim": run_cfg.model["n_embd"],
+                "training.max_steps": run_cfg.training["max_steps"],
+                "training.batch_size": run_cfg.training["batch_size"],
+                "training.eval_interval": run_cfg.training["eval_interval"],
+                "training.scheduler": run_cfg.training.get("scheduler", "cosine"),
+                "training.learning_rate": run_cfg.training["learning_rate"],
+                "observe.log_interval": run_cfg.observe.get("log_interval", 10),
+            },
+        ),
+        tags=build_common_tags("training", run_id, run_cfg.meta.get("run_name")),
+    )
+    training_span = langfuse.span(
+        trace_id=train_trace.id,
+        name=TRAINING_ROOT_SPAN_NAME,
+        input={"config_path": config_path},
+        metadata={
+            "run_dir": str(run_dir),
+            "checkpoint_dir": str(ckpt_dir),
+            "seed": env.get("seed", 42),
+            "dtype": env.get("dtype", "float32"),
+        },
+    )
 
     # Build data
     train_loader, val_loader = build_dataloaders(
@@ -183,9 +230,33 @@ def run_training(config_path: str):
                 ev = estimate_loss(model, train_loader, val_loader, eval_steps, device)
                 tracker.log_metric('Loss/train_eval', ev['train'], step)
                 tracker.log_metric('Loss/val',        ev['val'],   step)
+                eval_span = langfuse.span(
+                    trace_id=train_trace.id,
+                    parent_observation_id=training_span.id,
+                    name=TRAINING_EVAL_SPAN_NAME,
+                    input={"step": step, "eval_steps": eval_steps, "lr": lr},
+                    metadata={
+                        "best_val_loss_before": best_val_loss,
+                        "tokens_trained": total_tokens_trained,
+                    },
+                )
                 if ev['val'] < best_val_loss:
                     best_val_loss = ev['val']
-                    model.save_checkpoint(ckpt_dir / 'best.pt', step, optimizer, best_val_loss)
+                    model.save_checkpoint(ckpt_dir / 'best.safetensors', step, optimizer, best_val_loss)
+                    langfuse.span(
+                        trace_id=train_trace.id,
+                        parent_observation_id=training_span.id,
+                        name=CHECKPOINT_EVENT_NAME,
+                        input={"step": step},
+                        output={"path": str(ckpt_dir / 'best.safetensors')},
+                        metadata={
+                            "kind": "best",
+                            "val_loss": ev["val"],
+                            "train_loss": ev["train"],
+                            "tokens_trained": total_tokens_trained,
+                        },
+                    ).end()
+                eval_span.end(output=ev)
 
             if should_log or should_eval:
                 line = f"step {step:>5}: loss {loss.item():.4f}  lr {lr:.2e}"
@@ -197,9 +268,34 @@ def run_training(config_path: str):
                     tracker.log_metric('LR', lr, step)
 
             if step > 0 and step % ckpt_interval == 0:
-                model.save_checkpoint(ckpt_dir / 'latest.pt', step, optimizer, loss.item())
+                model.save_checkpoint(ckpt_dir / 'latest.safetensors', step, optimizer, loss.item())
+                langfuse.span(
+                    trace_id=train_trace.id,
+                    parent_observation_id=training_span.id,
+                    name=CHECKPOINT_EVENT_NAME,
+                    input={"step": step},
+                    output={"path": str(ckpt_dir / 'latest.safetensors')},
+                    metadata={
+                        "kind": "latest",
+                        "loss": loss.item(),
+                        "tokens_trained": total_tokens_trained,
+                    },
+                ).end()
 
-        model.save_checkpoint(ckpt_dir / 'latest.pt', max_steps, optimizer, loss.item())
+        model.save_checkpoint(ckpt_dir / 'latest.safetensors', max_steps, optimizer, loss.item())
+        langfuse.span(
+            trace_id=train_trace.id,
+            parent_observation_id=training_span.id,
+            name=CHECKPOINT_EVENT_NAME,
+            input={"step": max_steps},
+            output={"path": str(ckpt_dir / 'latest.safetensors')},
+            metadata={
+                "kind": "latest",
+                "loss": loss.item(),
+                "final": True,
+                "tokens_trained": total_tokens_trained,
+            },
+        ).end()
 
         # Calculate training metrics
         training_end_time = time.time()
@@ -223,6 +319,9 @@ def run_training(config_path: str):
         write_json(run_dir / 'resolved_run.json', resolved)
         
         tracker.finish(summary)
+        training_span.end(output=summary)
+        train_trace.update(output=summary)
+        flush_langfuse()
         complete_manifest(run_dir, summary)
         
         # Print training statistics
@@ -237,6 +336,13 @@ def run_training(config_path: str):
         print(f"{'='*70}")
 
     except Exception as e:
+        training_span.end(
+            level="ERROR",
+            status_message=str(e),
+            output={"error": str(e)},
+        )
+        train_trace.update(output={"error": str(e)})
+        flush_langfuse()
         fail_manifest(run_dir, str(e))
         raise
 

@@ -1,4 +1,4 @@
-# alg3
+# nanoforge
 
 Modular PyTorch system for training and evaluating small GPT language models on the TinyStories dataset using Byte-Pair Encoding (BPE) tokenization.
 

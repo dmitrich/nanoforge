@@ -25,8 +25,8 @@ def create_manifest(run_dir, run_id, run_type, config, lineage=None):
         'config_hash': hash_dict(config),
         'lineage':     lineage or {},
         'outputs': {
-            'best_checkpoint':  'checkpoints/best.pt',
-            'latest_checkpoint': 'checkpoints/latest.pt',
+            'best_checkpoint':  'checkpoints/best.safetensors',
+            'latest_checkpoint': 'checkpoints/latest.safetensors',
             'resolved_config':  'resolved_run.json',
             'metrics':          'metrics.jsonl',
         },

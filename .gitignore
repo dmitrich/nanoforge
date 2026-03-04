@@ -7,3 +7,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.bin
+observability/langfuse/.env
+observability/langfuse.sh
+docs/
+notebooks/

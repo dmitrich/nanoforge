@@ -1,5 +1,5 @@
 """
-src/evals.py — deepeval evaluation runner for alg3 GPT models
+src/evals.py — deepeval evaluation runner for nanoforge GPT models
 
 Usage:
     python src/evals.py configs/eval.json   # runs all judges defined in eval.json
@@ -32,7 +32,17 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from judge import build_judge
 from manifest import generate_run_id, create_manifest, complete_manifest, fail_manifest
-from model import GPT
+from model import GPT, resolve_checkpoint_path
+from observability import (
+    EVAL_ROOT_SPAN_NAME,
+    EVAL_SAMPLE_SPAN_NAME,
+    GENERATION_SPAN_NAME,
+    JUDGE_EVAL_SPAN_NAME,
+    build_common_tags,
+    build_common_trace_metadata,
+    flush_langfuse,
+    get_langfuse_client,
+)
 from tokenizer import Tokenizer
 from utils import append_jsonl, get_device, write_json
 
@@ -65,13 +75,7 @@ def _resolve_run_refs(raw: dict) -> tuple:
 
     ckpt_key = source.get("checkpoint", "best")
     ckpt_dir = run_dir / "checkpoints"
-    if ckpt_key == "best":
-        ckpt = ckpt_dir / "best.pt"
-        ckpt_path = str(ckpt if ckpt.exists() else ckpt_dir / "latest.pt")
-    elif ckpt_key == "latest":
-        ckpt_path = str(ckpt_dir / "latest.pt")
-    else:
-        ckpt_path = str(ckpt_dir / f"{ckpt_key}.pt")
+    ckpt_path = resolve_checkpoint_path(ckpt_dir, ckpt_key)
 
     return raw, ckpt_path, run_id
 
@@ -87,6 +91,10 @@ _PROVIDER_LABELS = {
 def _judge_label(judge_cfg: dict) -> str:
     provider = judge_cfg.get("provider", "nebius")
     return _PROVIDER_LABELS.get(provider, provider.title())
+
+
+def _score_name(metric_name: str, judge_cfg: dict) -> str:
+    return f"{metric_name} [{_judge_label(judge_cfg)}]"
 
 
 def _box_table(headers: list, rows: list) -> str:
@@ -228,6 +236,36 @@ def run_evals(config_path: str = None):
     }}
     write_json(eval_dir / "resolved_eval.json", resolved_eval)
     create_manifest(eval_dir, eval_id, "eval", resolved_eval, lineage={"from_run": run_id})
+    langfuse = get_langfuse_client()
+    eval_trace = langfuse.trace(
+        id=eval_id,
+        name=EVAL_ROOT_SPAN_NAME,
+        session_id=run_id,
+        input={"config_path": config_path, "resolved_eval": resolved_eval},
+        metadata=build_common_trace_metadata(
+            experiment_id=run_id,
+            run_type="evaluation",
+            source_run_id=run_id,
+            model_checkpoint=str(ckpt_path),
+            extra={
+                "eval.run_id": eval_id,
+                "test_cases_file": str(test_cases_path),
+                "judge.count": len(judges_cfg),
+                "metrics": [m["name"] for m in metrics_cfg],
+            },
+        ),
+        tags=build_common_tags("evaluation", run_id, eval_name),
+    )
+    eval_span = langfuse.span(
+        trace_id=eval_trace.id,
+        name=EVAL_ROOT_SPAN_NAME,
+        input={"checkpoint": str(ckpt_path), "test_cases_file": str(test_cases_path)},
+        metadata={
+            "source_run_id": run_id,
+            "judge_count": len(judges_cfg),
+            "metric_names": [m["name"] for m in metrics_cfg],
+        },
+    )
 
     print(f"Eval ID:    {eval_id}")
     print(f"Checkpoint: {ckpt_path}")
@@ -257,6 +295,12 @@ def run_evals(config_path: str = None):
         generations = []
         for tc in test_cases_raw:
             prompt = tc["input"]
+            sample_span = langfuse.span(
+                trace_id=eval_trace.id,
+                parent_observation_id=eval_span.id,
+                name=EVAL_SAMPLE_SPAN_NAME,
+                input={"test_id": tc["id"], "prompt": prompt},
+            )
             tokens = tokenizer.encode(prompt)
             idx    = torch.tensor([tokens], dtype=torch.long, device=device)
             with torch.no_grad():
@@ -267,7 +311,30 @@ def run_evals(config_path: str = None):
                     stop_token_ids=stop_token_ids,
                 )
             text  = tokenizer.decode(out[0].tolist())
+            generation = langfuse.generation(
+                trace_id=eval_trace.id,
+                parent_observation_id=sample_span.id,
+                name=GENERATION_SPAN_NAME,
+                model=f"nanoforge:{run_id}",
+                model_parameters={
+                    "temperature": temperature,
+                    "top_k": top_k,
+                    "max_new_tokens": max_new,
+                },
+                input=prompt,
+                output=text,
+                metadata={
+                    "test_id": tc["id"],
+                    "checkpoint": str(ckpt_path),
+                    "source_run_id": run_id,
+                    "stop_tokens": stop_strings,
+                },
+            )
+            generation.end()
+            sample_span.end(output={"generated_chars": len(text)})
             entry = {"test_id": tc["id"], "input": prompt, "actual_output": text}
+            entry["langfuse_generation_id"] = generation.id
+            entry["langfuse_trace_id"] = generation.trace_id
             generations.append(entry)
             append_jsonl(eval_dir / "generations.jsonl", entry)
             print(f"  [{tc['id']}] {prompt!r} → {len(text)} chars")
@@ -300,6 +367,22 @@ def run_evals(config_path: str = None):
             print(f"Evaluating ({len(generations)} × {len(metrics)} metrics)")
             all_results = []
             for gen in generations:
+                judge_span = langfuse.span(
+                    trace_id=eval_trace.id,
+                    parent_observation_id=gen["langfuse_generation_id"],
+                    name=JUDGE_EVAL_SPAN_NAME,
+                    input={
+                        "provider": provider,
+                        "judge_model": judge.get_model_name(),
+                        "test_id": gen["test_id"],
+                    },
+                    metadata={
+                        "judge.provider": provider,
+                        "judge.label": _judge_label(judge_cfg),
+                        "judge.model": judge.get_model_name(),
+                        "metric_names": [m["name"] for m in metrics_cfg],
+                    },
+                )
                 test_case    = LLMTestCase(input=gen["input"], actual_output=gen["actual_output"])
                 case_metrics = {}
                 for metric in metrics:
@@ -309,6 +392,13 @@ def run_evals(config_path: str = None):
                         "reason": metric.reason,
                         "passed": metric.is_successful(),
                     }
+                    langfuse.score(
+                        trace_id=gen["langfuse_trace_id"],
+                        observation_id=gen["langfuse_generation_id"],
+                        name=_score_name(metric.name, judge_cfg),
+                        value=round(metric.score, 4),
+                        comment=f"{judge.get_model_name()}: {metric.reason}",
+                    )
 
                 result = {
                     "test_id":       gen["test_id"],
@@ -319,6 +409,7 @@ def run_evals(config_path: str = None):
                 }
                 all_results.append(result)
                 append_jsonl(judge_dir / "results.jsonl", result)
+                judge_span.end(output=result["metrics"])
 
                 status = "PASS" if result["passed"] else "FAIL"
                 print(f"  [{gen['test_id']}] {status}")
@@ -375,6 +466,9 @@ def run_evals(config_path: str = None):
             ],
         }
         write_json(eval_dir / "summary.json", comparison)
+        eval_span.end(output=comparison)
+        eval_trace.update(output=comparison)
+        flush_langfuse()
         complete_manifest(eval_dir, comparison)
 
         print(f"\n=== Eval complete: {eval_id} ===")
@@ -389,6 +483,13 @@ def run_evals(config_path: str = None):
                 print(f"  {name}: mean={s['mean']:.2f}  pass_rate={s['pass_rate']:.0%}")
 
     except Exception as e:
+        eval_span.end(
+            level="ERROR",
+            status_message=str(e),
+            output={"error": str(e)},
+        )
+        eval_trace.update(output={"error": str(e)})
+        flush_langfuse()
         fail_manifest(eval_dir, str(e))
         raise
 

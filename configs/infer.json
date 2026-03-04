@@ -8,7 +8,7 @@
   },
 
   "source": {
-    "_note": "run_id: null = auto-detect latest training run. checkpoint: best = prefer best.pt.",
+    "_note": "run_id: null = auto-detect latest training run. checkpoint: best = prefer best.safetensors.",
     "run_id": null,
     "checkpoint": "best"
   },

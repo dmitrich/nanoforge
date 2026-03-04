@@ -2,7 +2,7 @@
 One-time setup: extract BPE tokenizer files from local source into artifacts/.
 All source files live inside this project under data/raw/ — no external dependencies.
 
-Run from alg3/ project root:
+Run from nanoforge/ project root:
     python setup_tokenizer.py
 """
 import json

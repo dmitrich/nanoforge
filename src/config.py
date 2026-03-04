@@ -7,6 +7,8 @@ from pathlib import Path
 
 import torch
 
+from model import resolve_checkpoint_path
+
 
 def _assert_project_root():
     required = ['src', 'configs', 'artifacts', 'runs']
@@ -15,7 +17,7 @@ def _assert_project_root():
         raise RuntimeError(
             f"Working directory '{Path.cwd()}' doesn't look like project root.\n"
             f"Missing: {missing}\n"
-            f"Run from the alg3/ project root."
+            f"Run from the nanoforge/ project root."
         )
 
 
@@ -197,10 +199,4 @@ class InferConfig:
         run_id   = self.source['run_id']
         ckpt_key = self.source.get('checkpoint', 'best')
         ckpt_dir = Path('runs/train') / run_id / 'checkpoints'
-        if ckpt_key == 'best':
-            p = ckpt_dir / 'best.pt'
-            return str(p if p.exists() else ckpt_dir / 'latest.pt')
-        if ckpt_key == 'latest':
-            return str(ckpt_dir / 'latest.pt')
-        # e.g. "step_3000"
-        return str(ckpt_dir / f'{ckpt_key}.pt')
+        return resolve_checkpoint_path(ckpt_dir, ckpt_key)

@@ -2,11 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Knowledge base: /Documents/know/llm-training/projects/alg3.md
+Knowledge base: /Documents/know/llm-training/projects/nanoforge.md
 
 ## Project Overview
 
-**alg3** is a modular PyTorch system for training and evaluating small GPT language models on the TinyStories dataset using Byte-Pair Encoding (BPE) tokenization. The project emphasizes reproducibility (config hashing, deterministic seeds, manifest tracking) and clean separation of concerns.
+**nanoforge** is a modular PyTorch system for training and evaluating small GPT language models on the TinyStories dataset using Byte-Pair Encoding (BPE) tokenization. The project emphasizes reproducibility (config hashing, deterministic seeds, manifest tracking) and clean separation of concerns.
 
 ## Commands
 
@@ -65,7 +65,7 @@ Standard decoder-only transformer: token + position embeddings → N transformer
 - AdamW optimizer (β1=0.9, β2=0.95, weight_decay=0.1)
 - LR schedule: linear warmup (0→200 steps) then cosine decay to 10% of max_lr
 - Gradient clipping at 1.0
-- Saves `best.pt` (best val loss) and `latest.pt` (periodic/final) under `runs/train/<run_id>/checkpoints/`
+- Saves `best.safetensors` (best val loss) and `latest.safetensors` (periodic/final) under `runs/train/<run_id>/checkpoints/`
 
 ### Data Pipeline (`src/dataloader.py`, `src/dataset_prep.py`)
 Training data stored as binary uint16 shards in `artifacts/datasets/`. `ShardedDataset` memory-maps shards and produces sliding window (input, target) pairs.

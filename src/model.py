@@ -1,7 +1,81 @@
+import json
 from dataclasses import dataclass, asdict
+
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+
+from safetensors import safe_open
+from safetensors.torch import save_file
+
+
+CHECKPOINT_EXT = '.safetensors'
+LEGACY_CHECKPOINT_EXT = '.pt'
+
+
+def _checkpoint_name(stem: str, ext: str = CHECKPOINT_EXT) -> str:
+    return f'{stem}{ext}'
+
+
+def resolve_checkpoint_path(ckpt_dir, ckpt_key: str) -> str:
+    from pathlib import Path
+
+    ckpt_dir = Path(ckpt_dir)
+
+    if ckpt_key == 'best':
+        candidates = [
+            ckpt_dir / _checkpoint_name('best'),
+            ckpt_dir / _checkpoint_name('best', LEGACY_CHECKPOINT_EXT),
+            ckpt_dir / _checkpoint_name('latest'),
+            ckpt_dir / _checkpoint_name('latest', LEGACY_CHECKPOINT_EXT),
+        ]
+    elif ckpt_key == 'latest':
+        candidates = [
+            ckpt_dir / _checkpoint_name('latest'),
+            ckpt_dir / _checkpoint_name('latest', LEGACY_CHECKPOINT_EXT),
+        ]
+    else:
+        candidates = [
+            ckpt_dir / _checkpoint_name(ckpt_key),
+            ckpt_dir / _checkpoint_name(ckpt_key, LEGACY_CHECKPOINT_EXT),
+        ]
+
+    for path in candidates:
+        if path.exists():
+            return str(path)
+    return str(candidates[0])
+
+
+def _to_saveable_tensor(tensor: torch.Tensor) -> torch.Tensor:
+    return tensor.detach().cpu().contiguous()
+
+
+def _encode_metadata(value, prefix: str, tensors: dict):
+    if torch.is_tensor(value):
+        tensor_name = prefix
+        tensors[tensor_name] = _to_saveable_tensor(value)
+        return {'__tensor__': tensor_name}
+    if isinstance(value, dict):
+        return {str(k): _encode_metadata(v, f'{prefix}.{k}', tensors) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_encode_metadata(v, f'{prefix}.{i}', tensors) for i, v in enumerate(value)]
+    if isinstance(value, tuple):
+        return {'__tuple__': [_encode_metadata(v, f'{prefix}.{i}', tensors) for i, v in enumerate(value)]}
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    raise TypeError(f'Unsupported checkpoint metadata type: {type(value)!r}')
+
+
+def _decode_metadata(value, tensors: dict):
+    if isinstance(value, dict):
+        if '__tensor__' in value:
+            return tensors[value['__tensor__']]
+        if '__tuple__' in value:
+            return tuple(_decode_metadata(v, tensors) for v in value['__tuple__'])
+        return {k: _decode_metadata(v, tensors) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_decode_metadata(v, tensors) for v in value]
+    return value
 
 
 @dataclass
@@ -153,18 +227,50 @@ class GPT(nn.Module):
         return sum(p.numel() for p in self.parameters())
 
     def save_checkpoint(self, path, step, optimizer, val_loss):
-        torch.save({
-            'model':     self.state_dict(),
-            'cfg':       self.cfg.to_dict(),
-            'step':      step,
-            'val_loss':  val_loss,
-            'optimizer': optimizer.state_dict(),
-        }, path)
+        model_tensors = {
+            f'model.{name}': _to_saveable_tensor(tensor)
+            for name, tensor in self.state_dict().items()
+        }
+        optimizer_tensors = {}
+        optimizer_state = _encode_metadata(optimizer.state_dict(), 'optimizer', optimizer_tensors)
+        metadata = {
+            'nanoforge_checkpoint_format': 'v1',
+            'cfg': json.dumps(self.cfg.to_dict()),
+            'step': json.dumps(step),
+            'val_loss': json.dumps(float(val_loss)),
+            'optimizer': json.dumps(optimizer_state),
+        }
+        save_file({**model_tensors, **optimizer_tensors}, str(path), metadata=metadata)
 
     @classmethod
     def from_checkpoint(cls, path):
-        ckpt = torch.load(path, map_location='cpu', weights_only=False)
-        cfg  = ModelConfig.from_dict(ckpt['cfg'])
+        path = str(path)
+        if path.endswith(LEGACY_CHECKPOINT_EXT):
+            ckpt = torch.load(path, map_location='cpu', weights_only=False)
+            cfg  = ModelConfig.from_dict(ckpt['cfg'])
+            model = cls(cfg)
+            model.load_state_dict(ckpt['model'])
+            return model, ckpt
+
+        with safe_open(path, framework='pt', device='cpu') as f:
+            metadata = f.metadata() or {}
+            tensors = {key: f.get_tensor(key) for key in f.keys()}
+
+        cfg = ModelConfig.from_dict(json.loads(metadata['cfg']))
         model = cls(cfg)
-        model.load_state_dict(ckpt['model'])
+        model_state = {
+            key.removeprefix('model.'): tensor
+            for key, tensor in tensors.items()
+            if key.startswith('model.')
+        }
+        model.load_state_dict(model_state)
+
+        optimizer_meta = json.loads(metadata.get('optimizer', '{}'))
+        ckpt = {
+            'model': model_state,
+            'cfg': cfg.to_dict(),
+            'step': json.loads(metadata.get('step', '0')),
+            'val_loss': json.loads(metadata.get('val_loss', '0.0')),
+            'optimizer': _decode_metadata(optimizer_meta, tensors),
+        }
         return model, ckpt

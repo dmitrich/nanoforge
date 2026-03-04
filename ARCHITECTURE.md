@@ -7,7 +7,7 @@ This is a modular PyTorch-based system for training small GPT language models on
 ## Project Structure
 
 ```
-alg3/
+nanoforge/
 ├── artifacts/              # Versioned tokenizers and datasets
 │   ├── tokenizers/
 │   │   └── tok_bpe_8k/    # BPE tokenizer with 8K vocab
@@ -910,7 +910,7 @@ pip install torch numpy tokenizers tensorboard
 
 2. **Verify Project Structure**
 ```bash
-# Ensure you're in the project root (alg3/)
+# Ensure you're in the project root (nanoforge/)
 ls -la
 # Should see: src/, configs/, artifacts/, runs/, data/
 ```
@@ -1031,7 +1031,7 @@ Create a new file `configs/my_experiment.json`:
 Once your config is ready, start training:
 
 ```bash
-# From project root (alg3/)
+# From project root (nanoforge/)
 python src/train.py configs/my_experiment.json
 ```
 
@@ -1222,7 +1222,7 @@ TensorBoard provides interactive visualizations of training metrics.
 #### Start TensorBoard
 
 ```bash
-# From project root (alg3/)
+# From project root (nanoforge/)
 tensorboard --logdir runs/train
 ```
 
@@ -1327,7 +1327,7 @@ python src/manifest.py verify runs/train/run_exp001_*
 ### Troubleshooting
 
 **Issue**: `RuntimeError: Working directory doesn't look like project root`
-- **Solution**: Run commands from the `alg3/` directory, not from `src/`
+- **Solution**: Run commands from the `nanoforge/` directory, not from `src/`
 
 **Issue**: `FileNotFoundError: artifacts/tokenizers/tok_bpe_8k/vocab.json`
 - **Solution**: Run `python setup_tokenizer.py` first
