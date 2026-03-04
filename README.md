@@ -1,11 +1,7 @@
 # Nano-forge
 
 Modular PyTorch system for training and evaluating performance of small (<1B parameters) language models.
-Models are in 50M-500M parameter range
-Custom vocabulaty size 8-32k (default 8000)
-Custom number of transformer blocks (default 4)
-Trainable locally on MacBook Pro laptop (M3-M5) - 10,000 tokens per second (100M parameter model)
-Evaluation loop is done with deepeval framework with multiple "LLM as a Judge providers" (nebius, togetherai)
+Models are in 50M-1B parameter range, flexible vocabulaty size 8-32k (default 8000), number of transformer blocks (default 4). Models are small to be trainable locally on MacBook Pro laptop (M3-M5) - 10,000 tokens per second (100M parameter model) should complete training in 5-10 mins. Evaluation loop is done with deepeval framework with multiple "LLM as a Judge providers" (nebius, togetherai)
 
 ---
 
