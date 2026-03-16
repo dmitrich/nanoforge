@@ -13,20 +13,12 @@
   },
 
   "tokenizer": {
-    "tok_id": "tok_bpe_8k",
-    "type": "bpe",
-    "vocab_size": 8000,
-    "artifacts_path": "artifacts/tokenizers/tok_bpe_8k"
+    "tok_id": "tok_bpe_8k"
   },
 
   "dataset": {
-    "ds_id": "ds_tinystories_tok_bpe8k_T128",
-    "dataset_type": "pretrain",
-    "tok_id": "tok_bpe_8k",
-    "artifacts_path": "artifacts/datasets/ds_tinystories_tok_bpe8k_T128",
-    "max_seq_len": 128,
-    "train_split": 0.9,
-    "val_split": 0.1
+    "ds_id":    "ds_tinystories_tok_bpe8k_T128",
+    "data_dir": "data/clean"
   },
 
   "model": {
@@ -41,10 +33,10 @@
   },
 
   "training": {
-    "batch_size": 4,
+    "batch_size": 32,
     "max_steps": 1000,
     "learning_rate": 0.0003,
-    "scheduler": "const",
+    "scheduler": "cosine",
     "warmup_steps": 200,
     "grad_clip": 1.0,
     "weight_decay": 0.1,
@@ -56,9 +48,10 @@
     "checkpoint_mode": "best_and_latest"
   },
 
-  "observe": {
+  "observability": {
     "log_interval": 100,
-    "disable_tensorboard": false,
-    "disable_jsonl": true
+    "tensorboard": true,
+    "jsonlog": false,
+    "langfuse": false
   }
 }

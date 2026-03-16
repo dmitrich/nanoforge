@@ -10,12 +10,11 @@ class Tracker:
         self.metrics_path = self.run_dir / 'metrics.jsonl'
         self.tb_dir.mkdir(parents=True, exist_ok=True)
         self.writer = None
-        self.enable_jsonl = not observe_cfg.get('disable_jsonl', False)
+        self.enable_jsonl = observe_cfg.get('jsonlog', True)
         self._init_tb()
 
     def _init_tb(self):
-        # Check if TensorBoard is disabled
-        if self.observe_cfg.get('disable_tensorboard', False):
+        if not self.observe_cfg.get('tensorboard', True):
             self.writer = None
             return
         

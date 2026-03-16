@@ -1,0 +1,33 @@
+{
+  "phases": {
+    "download": true,
+    "tokenize": true,
+    "encode":   true,
+    "force":    false
+  },
+  "download": {
+    "dataset_name": "karpathy/tinystories-gpt4-clean",
+    "split":        "train",
+    "text_field":   "text",
+    "output_dir":   "data/raw",
+    "size": { "mode": "tokens", "value": 100000000 },
+    "separation": { "token": "<EOS>" }
+  },
+  "tokenizer": {
+    "tok_id":         "tok_bpe_8k",
+    "type":           "bpe",
+    "vocab_size":     8000,
+    "min_frequency":  2,
+    "special_tokens": ["<pad>", "<unk>", "<s>", "</s>"],
+    "input_txt":      null
+  },
+  "dataset": {
+    "ds_id":       "ds_tinystories_tok_bpe8k_T128",
+    "output_dir":  "data/clean",
+    "max_seq_len": 128,
+    "train_split": 0.9,
+    "val_split":   0.1,
+    "dtype":       "uint16",
+    "max_tokens":  null
+  }
+}

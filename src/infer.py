@@ -17,7 +17,7 @@ def _find_latest_train_run() -> Path:
     return sorted(runs, key=lambda p: p.stat().st_mtime)[-1]
 
 
-def run_inference(config_path: str = None):
+def run_inference(config_path: str = None, force_interactive: bool = False):
     if config_path is None:
         # No config: synthesise a minimal InferConfig from the latest training run
         run_dir  = _find_latest_train_run()
@@ -67,7 +67,7 @@ def run_inference(config_path: str = None):
         print(f"Stop tokens: {stop_strings} -> IDs: {stop_token_ids}")
     
     # Check for interactive mode
-    interactive = cfg.input.get('interactive', False)
+    interactive = force_interactive or cfg.input.get('interactive', False)
     evals_enabled = cfg.input.get('evals', False)
     
     print(f"Infer ID: {infer_id}")
@@ -148,5 +148,16 @@ def run_inference(config_path: str = None):
 
 
 if __name__ == '__main__':
-    config_path = sys.argv[1] if len(sys.argv) > 1 else None
-    run_inference(config_path)
+    import argparse
+    parser = argparse.ArgumentParser(description='nanoforge inference')
+    parser.add_argument('config', nargs='?', default=None,
+                        help='path to infer config JSON (default: config/infer.json when --i is set)')
+    parser.add_argument('--i', action='store_true', dest='interactive',
+                        help='force interactive mode, overrides config setting')
+    args = parser.parse_args()
+
+    config_path = args.config
+    if args.interactive and config_path is None:
+        config_path = 'config/infer.json'
+
+    run_inference(config_path, force_interactive=args.interactive)

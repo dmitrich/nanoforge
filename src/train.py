@@ -96,7 +96,7 @@ def run_training(config_path: str):
         'parent_run_id': None,
     }
     create_manifest(run_dir, run_id, 'train', resolved, lineage)
-    langfuse = get_langfuse_client()
+    langfuse = get_langfuse_client(enabled=run_cfg.observability.get('langfuse', False))
     train_trace = langfuse.trace(
         id=run_id,
         name=TRAINING_ROOT_SPAN_NAME,
@@ -119,7 +119,7 @@ def run_training(config_path: str):
                 "training.eval_interval": run_cfg.training["eval_interval"],
                 "training.scheduler": run_cfg.training.get("scheduler", "cosine"),
                 "training.learning_rate": run_cfg.training["learning_rate"],
-                "observe.log_interval": run_cfg.observe.get("log_interval", 10),
+                "observe.log_interval": run_cfg.observability.get("log_interval", 10),
             },
         ),
         tags=build_common_tags("training", run_id, run_cfg.meta.get("run_name")),
@@ -138,7 +138,7 @@ def run_training(config_path: str):
 
     # Build data
     train_loader, val_loader = build_dataloaders(
-        dataset_cfg={**run_cfg.dataset, 'max_seq_len': run_cfg.dataset['max_seq_len']},
+        dataset_cfg=run_cfg.dataset,
         training_cfg={**run_cfg.training, 'num_workers': env.get('num_workers', 0)},
     )
 
@@ -149,8 +149,10 @@ def run_training(config_path: str):
         model = model.to(torch.bfloat16)
 
     optimizer = build_optimizer(model, run_cfg.training)
-    tracker   = Tracker(run_cfg.observe, run_dir)
+    tracker   = Tracker(run_cfg.observability, run_dir)
     tracker.log_config(resolved)
+    if run_cfg.observability.get('tensorboard', True):
+        print(f"TensorBoard is on — run: tensorboard --logdir runs/train")
 
     training      = run_cfg.training
     max_steps     = training['max_steps']
@@ -158,7 +160,7 @@ def run_training(config_path: str):
     eval_steps    = training['eval_steps']
     ckpt_interval = training.get('checkpoint_interval', 1000)
     grad_clip     = training.get('grad_clip', 1.0)
-    log_interval  = run_cfg.observe.get('log_interval', 10)
+    log_interval  = run_cfg.observability.get('log_interval', 10)
 
     scheduler = training.get('scheduler', 'cosine')
     lr        = training['learning_rate']
@@ -177,16 +179,30 @@ def run_training(config_path: str):
     T = run_cfg.model['block_size']
     C = run_cfg.model['n_embd']
     V = run_cfg.model['vocab_size']
-    
+    L = run_cfg.model['n_layer']
+    H = run_cfg.model['n_head']
+
+    dtype_str      = env.get('dtype', 'float32')
+    bytes_per_elem = 2 if dtype_str in ('bfloat16', 'float16') else 4
+    kv_cache_mb    = L * 2 * T * C * bytes_per_elem / (1024 * 1024)
+    n_params       = model.num_parameters()
+
     print(f"\n{'='*70}")
     print(f"Model Dimensions Summary")
     print(f"{'='*70}")
-    print(f"  B (Batch size):        {B:>8,}")
-    print(f"  T (Block size):        {T:>8,}")
-    print(f"  C (Embedding dim):     {C:>8,}")
-    print(f"  V (Vocab size):        {V:>8,}")
-    print(f"  {'─'*66}")
-    print(f"  B × T × C:             {B*T*C:>8,}  (activations per batch)")
+    print(f"  {'Dim':<6}  {'Meaning':<28}  {'Value':>10}")
+    print(f"  {'─'*50}")
+    print(f"  {'B':<6}  {'Batch size':<28}  {B:>10,}")
+    print(f"  {'T':<6}  {'Block size (tokens)':<28}  {T:>10,}")
+    print(f"  {'C':<6}  {'Embedding dim':<28}  {C:>10,}")
+    print(f"  {'L':<6}  {'Transformer blocks':<28}  {L:>10,}")
+    print(f"  {'H':<6}  {'Attention heads':<28}  {H:>10,}")
+    print(f"  {'V':<6}  {'Vocab size':<28}  {V:>10,}")
+    print(f"  {'─'*50}")
+    print(f"  {'B×T×C':<6}  {'Activations per batch':<28}  {B*T*C:>10,}")
+    print(f"  {'KV':<6}  {f'KV cache per seq ({dtype_str})':<28}  {kv_cache_mb:>9.1f} MB")
+    print(f"  {'N':<6}  {'Total parameters':<28}  {n_params:>10,}")
+    print(f"  {'':6}  2VC + TC + L(12C² + 10C) + V + 2C")
     print(f"{'='*70}\n")
 
     best_val_loss = float('inf')
@@ -195,7 +211,7 @@ def run_training(config_path: str):
     
     # Training metrics tracking
     training_start_time = time.time()
-    tokens_per_batch = training['batch_size'] * run_cfg.dataset['max_seq_len']
+    tokens_per_batch = training['batch_size'] * run_cfg.model['block_size']
     total_tokens_trained = 0
 
     model.train()
@@ -348,4 +364,5 @@ def run_training(config_path: str):
 
 
 if __name__ == '__main__':
-    run_training(sys.argv[1])
+    config_path = sys.argv[1] if len(sys.argv) > 1 else 'config/train.json'
+    run_training(config_path)

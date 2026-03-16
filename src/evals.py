@@ -85,6 +85,7 @@ def _resolve_run_refs(raw: dict) -> tuple:
 _PROVIDER_LABELS = {
     "nebius":   "Nebius",
     "together": "Together AI",
+    "aws":      "AWS Bedrock",
     "azure":    "Azure",
 }
 
@@ -202,7 +203,11 @@ def run_evals(config_path: str = None):
             "judges": [
                 {"provider": "nebius", "model": "meta-llama/Llama-3.3-70B-Instruct"},
             ],
-            "test_cases_file": "evals.json",
+            "test_cases": [
+                {"id": "test_001", "input": "Once upon a time"},
+                {"id": "test_002", "input": "The little girl went to"},
+                {"id": "test_003", "input": "In a magical forest, there lived"},
+            ],
             "metrics": [
                 {"name": "Coherence", "criteria": "The story flows logically and is internally consistent.", "threshold": 0.5},
                 {"name": "Fluency",   "criteria": "The text is grammatically correct and reads naturally.",  "threshold": 0.5},
@@ -221,10 +226,6 @@ def run_evals(config_path: str = None):
     generation      = raw.get("generation", {})
     model_cfg       = raw["model"]
 
-    # Resolve test_cases_file relative to this script's directory (src/) if not absolute
-    tcf = raw.get("test_cases_file", "evals.json")
-    test_cases_path = Path(tcf) if Path(tcf).is_absolute() else Path(__file__).parent / tcf
-
     # ── Create run directory ──────────────────────────────────────────────────
     eval_id  = generate_run_id(eval_name)
     eval_dir = Path("runs/evals") / eval_id
@@ -236,7 +237,7 @@ def run_evals(config_path: str = None):
     }}
     write_json(eval_dir / "resolved_eval.json", resolved_eval)
     create_manifest(eval_dir, eval_id, "eval", resolved_eval, lineage={"from_run": run_id})
-    langfuse = get_langfuse_client()
+    langfuse = get_langfuse_client(enabled=raw.get("observability", {}).get("langfuse", False))
     eval_trace = langfuse.trace(
         id=eval_id,
         name=EVAL_ROOT_SPAN_NAME,
@@ -249,7 +250,7 @@ def run_evals(config_path: str = None):
             model_checkpoint=str(ckpt_path),
             extra={
                 "eval.run_id": eval_id,
-                "test_cases_file": str(test_cases_path),
+                "test_case_count": len(raw.get("test_cases", [])),
                 "judge.count": len(judges_cfg),
                 "metrics": [m["name"] for m in metrics_cfg],
             },
@@ -259,7 +260,7 @@ def run_evals(config_path: str = None):
     eval_span = langfuse.span(
         trace_id=eval_trace.id,
         name=EVAL_ROOT_SPAN_NAME,
-        input={"checkpoint": str(ckpt_path), "test_cases_file": str(test_cases_path)},
+        input={"checkpoint": str(ckpt_path), "test_case_count": len(raw.get("test_cases", []))},
         metadata={
             "source_run_id": run_id,
             "judge_count": len(judges_cfg),
@@ -269,7 +270,7 @@ def run_evals(config_path: str = None):
 
     print(f"Eval ID:    {eval_id}")
     print(f"Checkpoint: {ckpt_path}")
-    print(f"Tests file: {test_cases_path}")
+    print(f"Test cases: {len(raw.get('test_cases', []))}")
     print(f"Judges:     {[j['provider'] for j in judges_cfg]}")
     print(f"Metrics:    {[m['name'] for m in metrics_cfg]}")
 
@@ -288,8 +289,7 @@ def run_evals(config_path: str = None):
         stop_strings   = generation.get("stop_tokens", [])
         stop_token_ids = tokenizer.get_stop_token_ids(stop_strings) if stop_strings else []
 
-        with open(test_cases_path) as f:
-            test_cases_raw = json.load(f)["test_cases"]
+        test_cases_raw = raw.get("test_cases", [])
 
         print(f"\n--- Inference ({len(test_cases_raw)} test cases) ---")
         generations = []
@@ -311,7 +311,7 @@ def run_evals(config_path: str = None):
                     stop_token_ids=stop_token_ids,
                 )
             text  = tokenizer.decode(out[0].tolist())
-            generation = langfuse.generation(
+            gen_span = langfuse.generation(
                 trace_id=eval_trace.id,
                 parent_observation_id=sample_span.id,
                 name=GENERATION_SPAN_NAME,
@@ -330,11 +330,11 @@ def run_evals(config_path: str = None):
                     "stop_tokens": stop_strings,
                 },
             )
-            generation.end()
+            gen_span.end()
             sample_span.end(output={"generated_chars": len(text)})
             entry = {"test_id": tc["id"], "input": prompt, "actual_output": text}
-            entry["langfuse_generation_id"] = generation.id
-            entry["langfuse_trace_id"] = generation.trace_id
+            entry["langfuse_generation_id"] = gen_span.id
+            entry["langfuse_trace_id"] = gen_span.trace_id
             generations.append(entry)
             append_jsonl(eval_dir / "generations.jsonl", entry)
             print(f"  [{tc['id']}] {prompt!r} → {len(text)} chars")
@@ -496,10 +496,9 @@ def run_evals(config_path: str = None):
 
 if __name__ == "__main__":
     import os
-    config_path = sys.argv[1] if len(sys.argv) > 1 else None
+    config_path = sys.argv[1] if len(sys.argv) > 1 else 'config/evals.json'
     # Resolve config path to absolute BEFORE changing directory
-    if config_path:
-        config_path = str(Path(config_path).resolve())
+    config_path = str(Path(config_path).resolve())
     # Always run relative to project root regardless of where script is invoked from
     os.chdir(Path(__file__).parent.parent)
     run_evals(config_path)

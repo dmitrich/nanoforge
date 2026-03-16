@@ -1,83 +1,46 @@
+# src/tokenizer.py — Tokenizer inference class
+
 import json
-import sys
-from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-from config import TokenizerConfig
+
+ARTIFACTS_DIR = Path("artifacts")
 
 
 class Tokenizer:
-    def __init__(self, tok_id, _tokenizer, vocab_size):
-        self.tok_id     = tok_id
-        self.vocab_size = vocab_size
-        self._tok       = _tokenizer
+    def __init__(self, tokenizer, manifest: dict):
+        self._tokenizer = tokenizer
+        self._manifest  = manifest
 
     @classmethod
-    def load(cls, tok_id):
-        tok_dir     = Path('artifacts/tokenizers') / tok_id
-        vocab_path  = tok_dir / 'vocab.json'
-        merges_path = tok_dir / 'merges.txt'
+    def load(cls, tok_id: str) -> "Tokenizer":
+        manifest_path = ARTIFACTS_DIR / "tokenizers" / tok_id / "tokenizer_manifest.json"
+        if not manifest_path.exists():
+            raise FileNotFoundError(f"Tokenizer manifest not found: {manifest_path}")
+        with open(manifest_path) as f:
+            manifest = json.load(f)
 
         from tokenizers import ByteLevelBPETokenizer
-        tok = ByteLevelBPETokenizer(
-            vocab=str(vocab_path),
-            merges=str(merges_path),
+        tokenizer = ByteLevelBPETokenizer.from_file(
+            manifest["vocab_path"],
+            manifest["merges_path"],
         )
+        return cls(tokenizer, manifest)
 
-        vocab_size = tok.get_vocab_size()
+    def encode(self, text: str) -> list[int]:
+        return self._tokenizer.encode(text).ids
 
-        manifest = {
-            'tok_id':      tok_id,
-            'vocab_size':  vocab_size,
-            'vocab_path':  str(vocab_path),
-            'merges_path': str(merges_path),
-            'loaded_at':   datetime.now().isoformat(),
-        }
-        with open(tok_dir / 'tokenizer_manifest.json', 'w') as f:
-            json.dump(manifest, f, indent=2)
+    def decode(self, ids: list[int]) -> str:
+        return self._tokenizer.decode(ids)
 
-        return cls(tok_id, tok, vocab_size)
+    def get_stop_token_ids(self, stop_strings: list[str]) -> list[int]:
+        result = []
+        for s in stop_strings:
+            ids = self.encode(s)
+            if ids:
+                result.append(ids[0])
+        return result
 
-    def encode(self, text):
-        if not text:
-            return [0]
-        return self._tok.encode(text).ids
-
-    def decode(self, ids):
-        return self._tok.decode(ids)
-
-    def encode_batch(self, texts):
-        return [self.encode(t) for t in texts]
-    
-    def get_token_id(self, text):
-        """Get the token ID for a specific text string."""
-        tokens = self.encode(text)
-        return tokens[0] if len(tokens) == 1 else None
-    
-    def get_stop_token_ids(self, stop_strings):
-        """
-        Convert stop strings to token IDs.
-        
-        Args:
-            stop_strings: List of strings that should trigger stopping
-        
-        Returns:
-            List of token IDs
-        """
-        stop_ids = []
-        for stop_str in stop_strings:
-            tokens = self.encode(stop_str)
-            # For single-token stops, add the token ID
-            if len(tokens) == 1:
-                stop_ids.append(tokens[0])
-            # For multi-token stops, we'll just use the first token as approximation
-            # (proper multi-token stopping would require sequence matching)
-            elif len(tokens) > 1:
-                stop_ids.append(tokens[0])
-        return stop_ids
-
-
-if __name__ == '__main__':
-    cfg = TokenizerConfig.load(sys.argv[1])
-    print(f"Tokenizer train not implemented for pre-built BPE. Use setup_tokenizer.py.")
+    @property
+    def vocab_size(self) -> int:
+        return self._manifest["vocab_size"]

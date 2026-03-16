@@ -11,7 +11,7 @@ from model import resolve_checkpoint_path
 
 
 def _assert_project_root():
-    required = ['src', 'configs', 'artifacts', 'runs']
+    required = ['src', 'config', 'artifacts', 'runs']
     missing = [d for d in required if not Path(d).exists()]
     if missing:
         raise RuntimeError(
@@ -59,11 +59,13 @@ class DatasetConfig:
     train_split: float
     val_split: float
     dtype: str
+    max_tokens: int = None
 
     @classmethod
     def load(cls, path):
         with open(path) as f:
             d = json.load(f)
+        d = {k: v for k, v in d.items() if not k.startswith('_')}
         return cls(**d)
 
     def save(self, path):
@@ -82,7 +84,7 @@ class RunConfig:
     dataset: dict
     model: dict
     training: dict
-    observe: dict
+    observability: dict
 
     @classmethod
     def load(cls, path):
@@ -91,19 +93,29 @@ class RunConfig:
         return cls(**d)
 
     def validate(self):
-        assert self.model['block_size'] == self.dataset['max_seq_len'], (
-            f"model.block_size {self.model['block_size']} != "
-            f"dataset.max_seq_len {self.dataset['max_seq_len']}"
-        )
-        assert self.model['vocab_size'] == self.tokenizer['vocab_size'], (
+        tok_id = self.tokenizer['tok_id']
+        tok_manifest_path = Path('artifacts/tokenizers') / tok_id / 'tokenizer_manifest.json'
+        with open(tok_manifest_path) as f:
+            tok_manifest = json.load(f)
+
+        data_dir = Path(self.dataset['data_dir'])
+        with open(data_dir / 'dataset_manifest.json') as f:
+            ds_manifest = json.load(f)
+
+        assert self.model['vocab_size'] == tok_manifest['vocab_size'], (
             f"model.vocab_size {self.model['vocab_size']} != "
-            f"tokenizer.vocab_size {self.tokenizer['vocab_size']}"
+            f"tokenizer vocab_size {tok_manifest['vocab_size']} (from manifest)"
+        )
+        assert self.model['block_size'] == ds_manifest['max_seq_len'], (
+            f"model.block_size {self.model['block_size']} != "
+            f"dataset max_seq_len {ds_manifest['max_seq_len']} (from manifest)"
+        )
+        assert ds_manifest['tok_id'] == tok_id, (
+            f"dataset was encoded with tok_id '{ds_manifest['tok_id']}' "
+            f"but config specifies tokenizer.tok_id '{tok_id}'"
         )
         assert self.model['n_embd'] % self.model['n_head'] == 0, (
             f"n_embd {self.model['n_embd']} not divisible by n_head {self.model['n_head']}"
-        )
-        assert self.dataset['tok_id'] == self.tokenizer['tok_id'], (
-            f"dataset.tok_id {self.dataset['tok_id']} != tokenizer.tok_id {self.tokenizer['tok_id']}"
         )
 
     def resolve(self, run_id):

@@ -1,5 +1,5 @@
 {
-  "_note": "Story quality evaluation. Run: python evals.py configs/eval.json",
+  "_note": "Eval config + test cases. Run: python src/evals.py config/evals.json",
 
   "meta": {
     "eval_name": "eval",
@@ -23,10 +23,8 @@
     "stop_tokens": ["\n\n"]
   },
 
-  "test_cases_file": "evals.json",
-
   "providers": {
-    "_note": "Credentials: env var checked first, then macOS Keychain. Add new providers here, then reference them in judges[].",
+    "_note": "Credentials: env var checked first, then macOS Keychain.",
     "nebius": {
       "endpoint": "https://api.tokenfactory.nebius.com/v1/",
       "keychain_service": "nebius-api-key",
@@ -39,6 +37,13 @@
       "env_var": "TOGETHER_API_KEY",
       "default_model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"
     },
+    "aws": {
+      "_note": "Bedrock Access Gateway — OpenAI-compatible proxy in front of AWS Bedrock.",
+      "endpoint": "https://8j5u0aqaw1.execute-api.us-east-1.amazonaws.com/api/v1",
+      "keychain_service": "bedrock-api-key",
+      "env_var": "BEDROCK_API_KEY",
+      "default_model": "us.meta.llama3-3-70b-instruct-v1:0"
+    },
     "azure": {
       "_note": "Disabled — not in judges[] below. Add to judges[] to activate.",
       "endpoint": "https://my-openai-llm.openai.azure.com/",
@@ -50,19 +55,14 @@
   },
 
   "judges": [
-    {
-      "provider": "nebius",
-      "model": "meta-llama/Llama-3.3-70B-Instruct"
-    },
-    {
-      "provider": "together",
-      "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"
-    }
+    { "provider": "nebius",   "model": "meta-llama/Llama-3.3-70B-Instruct" },
+    { "provider": "together", "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo" },
+    { "provider": "aws",      "model": "us.meta.llama3-3-70b-instruct-v1:0" }
   ],
 
   "metrics": [
     {
-      "_note": "threshold: score >= value to pass. Criteria fed verbatim to the judge.",
+      "_note": "threshold: score >= value to pass.",
       "name": "Coherence",
       "criteria": "The story flows logically. Characters, setting, and events are internally consistent from start to finish.",
       "threshold": 0.5
@@ -76,6 +76,30 @@
       "name": "Creativity",
       "criteria": "The story contains imaginative or playful elements that would engage a child reader.",
       "threshold": 0.4
+    }
+  ],
+
+  "test_cases": [
+    {
+      "id": "test_001",
+      "input": "Once upon a time",
+      "expected_output": null,
+      "metrics": ["coherence", "fluency"],
+      "metadata": { "category": "story_generation", "difficulty": "easy" }
+    },
+    {
+      "id": "test_002",
+      "input": "The little girl went to",
+      "expected_output": null,
+      "metrics": ["coherence", "fluency", "creativity"],
+      "metadata": { "category": "story_continuation", "difficulty": "medium" }
+    },
+    {
+      "id": "test_003",
+      "input": "In a magical forest, there lived",
+      "expected_output": null,
+      "metrics": ["coherence", "fluency", "creativity"],
+      "metadata": { "category": "story_generation", "difficulty": "medium" }
     }
   ]
 }

@@ -11,3 +11,7 @@ observability/langfuse/.env
 observability/langfuse.sh
 docs/
 notebooks/
+config/archive/
+config/samples/
+artifacts/
+src/old/

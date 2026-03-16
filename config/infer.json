@@ -27,7 +27,7 @@
 
   "input": {
     "_note": "batch mode: interactive=false, evals=false. prompts are encoded and fed to model.generate().",
-    "interactive": false,
+    "interactive": true,
     "evals": false,
     "prompts": [
       "Once upon a time",

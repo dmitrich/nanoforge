@@ -1,6 +1,0 @@
-{
-  "endpoint": "https://api.tokenfactory.nebius.com/v1/",
-  "keychain_service": "nebius-api-key",
-  "env_var": "NEBIUS_API_KEY",
-  "default_model": "meta-llama/Llama-3.3-70B-Instruct"
-}

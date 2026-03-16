@@ -1,6 +1,0 @@
-{
-  "endpoint": "https://api.together.xyz/v1/",
-  "keychain_service": "together-api-key",
-  "env_var": "TOGETHER_API_KEY",
-  "default_model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"
-}

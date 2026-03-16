@@ -1,0 +1,22 @@
+# Tokenizer Configuration File
+# This file configures the tokenization process
+
+# Input file path (required)
+# The text file to tokenize (typically the output from Text Sampler)
+input_file=output/TinyStoriesV2-GPT4-100M-train.txt
+
+# Encoder type (required)
+# Valid values: "BPE" or "SentencePiece"
+encoder_type=BPE
+
+# Vocabulary size (optional, default: 8000)
+# The number of tokens in the vocabulary
+vocab_size=8000
+
+# Vocabulary name (optional)
+# Name for the vocabulary file based on sample size and token count
+vocab_name=tok100M_8k_sp.vocab
+
+# Binary output directory (optional, default: bin)
+# Directory where the binary token file will be written
+bin_dir=bin
