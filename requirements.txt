@@ -1,8 +1,11 @@
+pip
 torch
 safetensors
 numpy
 tokenizers
 tensorboard
+setuptools<80
 deepeval
 openai
 langfuse>=2.0.0,<3.0.0
+datasets

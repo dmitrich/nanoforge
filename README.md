@@ -1,251 +1,231 @@
 # nanoforge
 
-Modular PyTorch system for training and evaluating performance of small (<1B parameters) language models.
-Models are in 50M-1B parameter range, flexible vocabulaty size 8-32k (default 8000), number of transformer blocks (default 4). Models are small to be trainable locally on MacBook Pro laptop (M3-M5) - 10,000 tokens per second (100M parameter model) should complete training in 5-10 mins. Evaluation loop is done with deepeval framework with multiple "LLM as a Judge providers" (nebius, togetherai)
+A modular PyTorch system for training and evaluating small GPT language models on the TinyStories dataset using Byte-Pair Encoding (BPE) tokenization.
 
 ---
 
-## Quick start
+## Quick Start
 
-### 1. One-time setup
+1. [Set up the environment](#1-set-up-the-environment)
+2. [Prepare the data](#2-prepare-the-data)
+3. [Train the model](#3-train-the-model)
+4. [Run inference](#4-run-inference)
+5. [Evaluate with LLM judges](#5-evaluate-with-llm-judges)
 
-```bash
-# Install dependencies
-uv sync
+---
 
-# Build the BPE tokenizer from raw data
-python setup_tokenizer.py
+## Step-by-step instructions
 
-# Prepare dataset shards
-python src/dataset_prep.py configs/ds_tinystories_pretrain.json
-```
-
-### 2. Train
+### 1. Set up the environment
 
 ```bash
-python src/train.py configs/train.json
+uv venv --python 3.12
+source .venv/bin/activate
+uv pip install -r requirements.txt
 ```
 
-Checkpoints are written to `runs/train/<run_id>/checkpoints/`. Progress is visible in TensorBoard:
+Uses [uv](https://github.com/astral-sh/uv) for fast environment management with Python 3.12.
 
+### 2. Prepare the data
+
+```bash
+python src/dataprep.py config/dataprep.json
+```
+
+### 3. Train the model
+
+```bash
+python src/train.py config/train.json
+```
+
+### 4. Run inference
+
+```bash
+python src/infer.py config/infer.json
+```
+
+### 5. Evaluate with LLM judges
+
+Configure API credentials first (see [Evaluation setup](#evaluation-setup) below), then:
+
+```bash
+python src/evals.py config/evals.json
+```
+
+---
+
+## Detailed explanations
+
+### 2. Prepare the data
+
+```bash
+python src/dataprep.py config/dataprep.json
+```
+
+Runs a three-phase pipeline. All phases are idempotent — if output already exists with the same config, the phase is skipped automatically.
+
+**Phase 1 — Download**
+
+Streams the [TinyStories GPT-4 clean](https://huggingface.co/datasets/karpathy/tinystories-gpt4-clean) dataset from HuggingFace. Probes the first 100 examples to detect special tokens, then writes stories to `data/raw/MMDD_NNN_SIZEtok.txt` separated by `<EOS>` tokens.
+
+Default config: 100M tokens, `data/raw/` output.
+
+**Phase 2 — Tokenize**
+
+Trains a Byte-Pair Encoding (BPE) tokenizer on the downloaded `.txt` file. Saves the vocabulary and merges files as a versioned artifact to `artifacts/tokenizers/<tok_id>/`.
+
+Default config: 8,000 vocab size, tok_id `tok_bpe_8k`.
+
+**Phase 3 — Encode**
+
+Tokenizes the full `.txt` file using the trained BPE tokenizer and writes two binary shards:
+- `shard_000.bin` — training split (90%)
+- `shard_001.bin` — validation split (10%)
+
+Saves a `dataset_manifest.json` alongside the shards. Default output: `data/clean/`.
+
+---
+
+### 3. Train the model
+
+```bash
+python src/train.py config/train.json
+```
+
+Trains a decoder-only GPT model (4 layers, 4 heads, 1024 embedding dim, ~98M parameters). Key settings from `config/train.json`:
+
+| Setting | Default | Description |
+|---|---|---|
+| `training.max_steps` | 1000 | Total training steps |
+| `training.batch_size` | 32 | Batch size |
+| `training.learning_rate` | 3e-4 | Peak learning rate |
+| `training.scheduler` | cosine | LR schedule (linear warmup 0→200 steps, then cosine decay to 10% of peak) |
+| `training.grad_clip` | 1.0 | Gradient clipping |
+| `environment.device` | mps | Device: `mps` (Apple Silicon), `cuda`, or `cpu` |
+| `observability.tensorboard` | true | Enable TensorBoard logging |
+
+**Outputs** are saved to `runs/train/<run_id>/`:
+- `checkpoints/best.safetensors` — checkpoint with the lowest validation loss
+- `checkpoints/latest.safetensors` — most recent checkpoint
+- `resolved_run.json` — full config stamped at runtime
+- `manifest.json` — run lineage and summary stats
+
+**Monitor training:**
 ```bash
 tensorboard --logdir runs/train
 ```
 
-### 3. Generate stories
+---
+
+### 4. Run inference
 
 ```bash
-# Batch mode — 3 prompts, saves output JSONL
-python src/infer.py configs/infer.json
-
-# Interactive REPL — type prompts at the terminal
-python src/infer.py configs/infer_interactive.json
+python src/infer.py config/infer.json
 ```
 
-Auto-detects the latest training run and loads the best checkpoint.
+Generates text from the most recent training run. Uses `"$from_run": true` in the config to automatically inherit the model architecture and tokenizer from the training run — no manual path configuration needed.
 
-### 4. Evaluate quality
+Default `config/infer.json` runs in **interactive mode** with top-k sampling (k=40, temperature=0.8). Generation stops on `</s>` or double newline.
+
+To run against a specific training run, set `source.run_id` in the config:
+```json
+"source": { "run_id": "train_0316_162102", "checkpoint": "best" }
+```
+
+To run non-interactively (batch mode), set `"interactive": false` in the `input` section — the model will generate from the `prompts` list and save results to `runs/infer/<infer_id>/`.
+
+---
+
+### 5. Evaluate with LLM judges
 
 ```bash
-python evals.py configs/eval.json
+python src/evals.py config/evals.json
 ```
 
-Runs inference on test cases from `evals.json`, then scores each generation with an LLM judge (Coherence, Fluency, Creativity). Outputs land in `runs/evals/<eval_id>/`.
+Runs GPT inference on 3 test case prompts, then scores each generated story with one or more external LLM judges using [deepeval](https://github.com/confident-ai/deepeval)'s `GEval` metric. Default metrics: **Coherence**, **Fluency**, **Creativity**.
+
+**Outputs** land in `runs/evals/<eval_id>/`:
+- `generations.jsonl` — raw model output for each test case
+- `<provider>/results.jsonl` — per-case metric scores and judge reasoning
+- `<provider>/summary.json` — aggregate pass/fail stats per judge
+- `summary.json` — cross-judge comparison
+
+If multiple judges are configured, a comparison table is printed at the end.
 
 ---
 
-## Config file reference
+## Evaluation setup
 
-All configs are JSON files in `configs/`. Each section below corresponds to a top-level key.
+Three judge providers are configured in `config/evals.json`: **Nebius**, **Together AI**, and **AWS Bedrock**. Each requires an API key.
 
-### `meta` — run identity
+### Nebius and Together AI
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `run_name` / `infer_name` / `eval_name` | string | Human-readable name, used as prefix in the run ID |
-| `description` | string | Free-text note for the run registry |
-| `tags` | string[] | Labels for filtering in the manifest |
+Credentials are resolved in order: environment variable first, then macOS Keychain.
 
----
-
-### `environment` — hardware and reproducibility  *(train only)*
-
-| Key | Values | Description |
-|-----|--------|-------------|
-| `device` | `"mps"`, `"cuda"`, `"cpu"` | Compute device. Auto-detected if omitted (MPS → CUDA → CPU) |
-| `dtype` | `"bfloat16"`, `"float32"` | Floating-point precision. `bfloat16` is faster on MPS/CUDA |
-| `seed` | integer | Random seed for reproducibility |
-| `num_workers` | integer | DataLoader workers. Use `0` on MPS (spawning is slow) |
-
----
-
-### `tokenizer` — vocabulary  *(train only)*
-
-| Key | Description |
-|-----|-------------|
-| `tok_id` | Artifact ID, must match `dataset.tok_id` and the tokenizer directory name |
-| `type` | Tokenizer type — only `"bpe"` is currently supported |
-| `vocab_size` | Must equal `model.vocab_size` |
-| `artifacts_path` | Path to the tokenizer artifact directory |
-
----
-
-### `dataset` — training data  *(train only)*
-
-| Key | Description |
-|-----|-------------|
-| `ds_id` | Artifact ID of the prepared dataset shards |
-| `dataset_type` | `"pretrain"` — sliding-window next-token prediction |
-| `tok_id` | Must match `tokenizer.tok_id` |
-| `artifacts_path` | Path to the dataset artifact directory (binary uint16 shards) |
-| `max_seq_len` | Sequence length in tokens. **Must equal `model.block_size`** |
-| `train_split` / `val_split` | Fraction of shards used for train/validation (must sum to 1.0) |
-
----
-
-### `model` — architecture  *(train only; infer/eval inherit via `$from_run`)*
-
-| Key | Description |
-|-----|-------------|
-| `architecture` | `"gpt"` — standard decoder-only transformer |
-| `n_layer` | Number of transformer blocks |
-| `n_head` | Number of attention heads per block |
-| `n_embd` | Embedding dimension. Must be divisible by `n_head` |
-| `dropout` | Dropout probability (applied during training, disabled at inference) |
-| `block_size` | Context length in tokens. **Must equal `dataset.max_seq_len`** |
-| `bias` | Whether to add bias to linear layers. `false` is standard (GPT-2 style) |
-| `vocab_size` | Must equal `tokenizer.vocab_size` |
-
-**Parameter count** scales roughly as `12 × n_layer × n_embd²`. The default (4L, 4H, 1024D) is ~98M parameters.
-
----
-
-### `training` — optimizer and schedule  *(train only)*
-
-| Key | Description |
-|-----|-------------|
-| `batch_size` | Sequences per gradient step |
-| `max_steps` | Total training steps |
-| `learning_rate` | Peak LR (after warmup). Typical range: 3e-4 – 5e-4 |
-| `scheduler` | `"cosine"` decays LR to 10% of peak; `"constant"` holds it fixed |
-| `warmup_steps` | Steps to linearly ramp LR from 0 to `learning_rate`. Set to `0` for constant LR |
-| `grad_clip` | Max gradient norm (1.0 is standard) |
-| `weight_decay` | AdamW weight decay |
-| `beta1` / `beta2` | AdamW momentum parameters |
-| `eval_interval` | Run validation every N steps (and always at step 0 and the final step). Set to `999999` to skip mid-run evals |
-| `eval_steps` | Number of validation batches to average |
-| `checkpoint_interval` | Save `latest.pt` every N steps. Set to `999999` to only save at the end |
-| `checkpoint_mode` | `"best_and_latest"` — saves `best.pt` whenever val loss improves plus `latest.pt` on schedule |
-
----
-
-### `observe` — logging  *(train only)*
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `log_interval` | `10` | Print loss to console every N steps |
-| `disable_tensorboard` | `false` | Set to `true` to skip TensorBoard writer |
-| `disable_jsonl` | `false` | Set to `true` to skip per-step JSONL metrics file |
-
-Disabling both JSONL and TensorBoard gives the fastest iteration — console output only.
-
----
-
-### `source` — checkpoint resolution  *(infer and eval)*
-
-| Key | Description |
-|-----|-------------|
-| `run_id` | Training run ID to load from. `null` = auto-detect the most recent run |
-| `checkpoint` | `"best"` loads `best.pt`; `"latest"` loads `latest.pt` |
-
----
-
-### `model` / `tokenizer` — inheritance  *(infer and eval)*
-
-Setting either to `{ "$from_run": true }` copies the architecture and tokenizer config directly from the source training run's manifest. This ensures inference always matches the training setup exactly.
-
----
-
-### `generation` — sampling  *(infer and eval)*
-
-| Key | Description |
-|-----|-------------|
-| `max_new_tokens` | Maximum tokens to generate beyond the prompt |
-| `temperature` | Sampling temperature. Higher = more random. `1.0` = unmodified logits |
-| `top_k` | Sample from the top-K most likely tokens. `0` = no filtering (full distribution) |
-| `strategy` | `"top_k"` is the only implemented strategy |
-| `stop_tokens` | List of strings that terminate generation early (e.g. `["</s>", "\n\n"]`) |
-
----
-
-### `input` — inference mode  *(infer only)*
-
-| Key | Description |
-|-----|-------------|
-| `interactive` | `true` = REPL loop, reads prompts from stdin |
-| `evals` | `true` = read prompts from `evals_file` (deepeval test case format) |
-| `prompts` | List of inline prompt strings (used when `interactive` and `evals` are both `false`) |
-| `evals_file` | Path to the test cases JSON file (used when `evals: true`) |
-
-The three modes are mutually exclusive: **batch** (`prompts` list), **interactive** (stdin REPL), **evals** (from file).
-
----
-
-### `judge` — LLM-as-judge  *(eval only)*
-
-| Key | Description |
-|-----|-------------|
-| `provider` | `"nebius"` or `"together"` — selects the credential resolver |
-| `endpoint` | OpenAI-compatible API base URL |
-| `model` | Model name passed to the judge API |
-
-Credentials are resolved automatically via `~/Documents/dev/azure/providers.py`:
-- **nebius**: Keychain service `nebius-api-key` or env `NEBIUS_API_KEY`
-- **together**: Keychain service `together-api-key` or env `TOGETHER_API_KEY`
-
----
-
-### `metrics` — eval criteria  *(eval only)*
-
-Each entry in the `metrics` array defines one GEval metric:
-
-| Key | Description |
-|-----|-------------|
-| `name` | Metric label (appears in results output) |
-| `criteria` | Natural-language rubric fed verbatim to the LLM judge |
-| `threshold` | Minimum score (0–1) for a test case to pass |
-
----
-
-## Constraints
-
-These must be consistent across sections or the run will fail at startup:
-
-- `model.block_size` == `dataset.max_seq_len`
-- `model.vocab_size` == `tokenizer.vocab_size`
-- `dataset.tok_id` == `tokenizer.tok_id`
-- `model.n_embd` divisible by `model.n_head`
-
----
-
-## Output structure
-
+**Option A — Environment variable:**
+```bash
+export NEBIUS_API_KEY=your_key
+export TOGETHER_API_KEY=your_key
 ```
-runs/
-  train/<run_id>/
-    checkpoints/
-      best.pt        # best validation loss checkpoint
-      latest.pt      # most recent periodic checkpoint
-    manifest.json    # config hash, lineage, summary stats
-    metrics.jsonl    # per-step loss (if disable_jsonl: false)
-    tensorboard/     # TensorBoard event files (if disable_tensorboard: false)
-  infer/<infer_id>/
-    generations.jsonl
-    manifest.json
-  evals/<eval_id>/
-    generations.jsonl
-    results.jsonl
-    summary.json
-    manifest.json
-  registry.jsonl     # global log of all train and infer runs
+
+**Option B — macOS Keychain (recommended for local development):**
+```bash
+security add-generic-password -s nebius-api-key   -a nanoforge -w YOUR_KEY
+security add-generic-password -s together-api-key -a nanoforge -w YOUR_KEY
+```
+
+---
+
+### AWS Bedrock (via Bedrock Access Gateway)
+
+The `aws` judge uses a **Bedrock Access Gateway** — a self-hosted proxy that exposes an OpenAI-compatible API in front of AWS Bedrock. It accepts a static API key rather than IAM credentials, so configuration is the same as any OpenAI-compatible endpoint.
+
+**How it works:** The gateway sits between nanoforge and AWS Bedrock. nanoforge calls it exactly like any OpenAI endpoint (`base_url` + `api_key`). The gateway handles AWS SigV4 signing internally.
+
+**Step-by-step setup:**
+
+1. **Deploy the Bedrock Access Gateway** to AWS (API Gateway + Lambda). See the [official repo](https://github.com/aws-samples/bedrock-access-gateway) for deployment instructions. After deployment you will have:
+   - An **API Gateway URL** (e.g. `https://abc123.execute-api.us-east-1.amazonaws.com/api/v1`)
+   - An **API key** you set during deployment
+
+2. **Set the endpoint URL** in `config/evals.json` under `providers.aws.endpoint`:
+   ```json
+   "aws": {
+     "endpoint": "https://YOUR_GATEWAY_ID.execute-api.us-east-1.amazonaws.com/api/v1",
+     ...
+   }
+   ```
+
+3. **Set the model ID** — use the AWS cross-region inference profile ID format:
+   ```json
+   "default_model": "us.meta.llama3-3-70b-instruct-v1:0"
+   ```
+   Available models depend on what is enabled in your AWS account's Bedrock console.
+
+4. **Store the API key** in macOS Keychain (or set the env var):
+   ```bash
+   # Keychain (recommended):
+   security add-generic-password -s bedrock-api-key -a nanoforge -w YOUR_GATEWAY_API_KEY
+
+   # Or environment variable:
+   export BEDROCK_API_KEY=YOUR_GATEWAY_API_KEY
+   ```
+
+5. **Verify the key was stored:**
+   ```bash
+   security find-generic-password -s bedrock-api-key -w
+   ```
+
+6. **Test the connection** by running evals:
+   ```bash
+   python src/evals.py config/evals.json
+   ```
+   The `aws` judge entry will appear in the comparison table if the gateway is reachable and the key is valid.
+
+**Note:** The gateway API key is **not** an IAM Access Key ID / Secret Access Key. It is a static key configured at gateway deployment time, used only to authenticate requests to the gateway itself.
+
+To update a stored key:
+```bash
+security delete-generic-password -s bedrock-api-key
+security add-generic-password -s bedrock-api-key -a nanoforge -w NEW_KEY
 ```
