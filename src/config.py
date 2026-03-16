@@ -11,7 +11,7 @@ from model import resolve_checkpoint_path
 
 
 def _assert_project_root():
-    required = ['src', 'config', 'artifacts', 'runs']
+    required = ['src', 'config']
     missing = [d for d in required if not Path(d).exists()]
     if missing:
         raise RuntimeError(
@@ -19,6 +19,8 @@ def _assert_project_root():
             f"Missing: {missing}\n"
             f"Run from the nanoforge/ project root."
         )
+    for d in ['artifacts', 'runs']:
+        Path(d).mkdir(exist_ok=True)
 
 
 _assert_project_root()
