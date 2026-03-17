@@ -123,13 +123,14 @@ Trains a decoder-only GPT model (4 layers, 4 heads, 1024 embedding dim, ~98M par
 
 | Setting | Default | Description |
 |---|---|---|
-| `training.max_steps` | 1000 | Total training steps |
-| `training.batch_size` | 32 | Batch size |
+| `training.max_steps` | 1000 | Total training steps (can increase as needed) |
+| `training.batch_size` | 4 | Batch size (4-32) for laptop setup|
 | `training.learning_rate` | 3e-4 | Peak learning rate |
-| `training.scheduler` | cosine | LR schedule (linear warmup 0→200 steps, then cosine decay to 10% of peak) |
+| `training.scheduler` | cosine | LR schedule (linear warmup 0→200 steps, then cosine decay to 10% of peak) OR const (constant value)|
 | `training.grad_clip` | 1.0 | Gradient clipping |
 | `environment.device` | mps | Device: `mps` (Apple Silicon), `cuda`, or `cpu` |
 | `observability.tensorboard` | true | Enable TensorBoard logging |
+| `observability.tensorboard_weights` | false | Log weight and gradient histograms to TensorBoard at each eval step |
 
 **Outputs** are saved to `runs/train/<run_id>/`:
 - `checkpoints/best.safetensors` — checkpoint with the lowest validation loss
