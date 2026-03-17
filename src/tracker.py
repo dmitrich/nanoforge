@@ -24,6 +24,17 @@ class Tracker:
         except Exception:
             self.writer = None
 
+    def log_weights(self, model, step: int):
+        if self.writer is None:
+            return
+        if not self.observe_cfg.get('tensorboard_weights', False):
+            return
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                self.writer.add_histogram(f'weights/{name}', param.detach().float(), step)
+                if param.grad is not None:
+                    self.writer.add_histogram(f'grads/{name}', param.grad.detach().float(), step)
+
     def log_metric(self, name: str, value: float, step: int):
         if self.writer is not None:
             self.writer.add_scalar(name, value, step)

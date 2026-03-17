@@ -246,6 +246,7 @@ def run_training(config_path: str):
                 ev = estimate_loss(model, train_loader, val_loader, eval_steps, device)
                 tracker.log_metric('Loss/train_eval', ev['train'], step)
                 tracker.log_metric('Loss/val',        ev['val'],   step)
+                tracker.log_weights(model, step)
                 eval_span = langfuse.span(
                     trace_id=train_trace.id,
                     parent_observation_id=training_span.id,

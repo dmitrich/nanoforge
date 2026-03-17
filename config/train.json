@@ -51,6 +51,7 @@
   "observability": {
     "log_interval": 100,
     "tensorboard": true,
+    "tensorboard_weights": true,
     "jsonlog": false,
     "langfuse": false
   }
